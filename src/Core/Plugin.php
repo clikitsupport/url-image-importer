@@ -231,6 +231,12 @@ class Plugin {
 	 * AJAX handler for subscribe modal dismissal.
 	 */
 	public function ajax_subscribe_dismiss() {
+		if ( function_exists( '\uimptr_check_ajax_request' ) ) {
+			\uimptr_check_ajax_request();
+		} else {
+			\check_ajax_referer( 'uimptr_ajax', 'nonce' );
+		}
+
 		\update_user_option( \get_current_user_id(), 'bfu_subscribe_notice_dismissed', 1 );
 		\wp_send_json_success();
 	}
@@ -263,6 +269,83 @@ class Plugin {
 	}
 
 	/**
+	 * Get the transient keys used for legacy import progress and stop state.
+	 *
+	 * @return array
+	 */
+	private function get_import_state_keys() {
+		$user_id     = \get_current_user_id();
+		$site_hash   = substr( md5( \home_url() ), 0, 8 );
+		$progress_key = 'uimptr_progress_' . $site_hash . '_' . $user_id;
+		$stop_key     = 'uimptr_import_stop_' . $site_hash . '_' . $user_id;
+
+		return array(
+			'user_id'      => $user_id,
+			'site_hash'    => $site_hash,
+			'progress_key' => $progress_key,
+			'stop_key'     => $stop_key,
+		);
+	}
+
+	/**
+	 * Clear any outstanding stop request for the legacy import flow.
+	 *
+	 * @param string $stop_key Stop transient key.
+	 * @return void
+	 */
+	private function clear_import_stop_request( $stop_key ) {
+		\delete_transient( $stop_key );
+	}
+
+	/**
+	 * Record a stop request for the legacy import flow.
+	 *
+	 * @param string $stop_key Stop transient key.
+	 * @return void
+	 */
+	private function request_import_stop( $stop_key ) {
+		\set_transient(
+			$stop_key,
+			array(
+				'requested_at' => time(),
+			),
+			HOUR_IN_SECONDS
+		);
+	}
+
+	/**
+	 * Whether the legacy import flow has received a stop request.
+	 *
+	 * @param string $stop_key Stop transient key.
+	 * @return bool
+	 */
+	private function is_import_stop_requested( $stop_key ) {
+		return (bool) \get_transient( $stop_key );
+	}
+
+	/**
+	 * Build a stopped progress payload while preserving any known counters.
+	 *
+	 * @param array|null $progress Existing progress payload.
+	 * @return array
+	 */
+	private function get_stopped_progress_payload( $progress = null ) {
+		$progress = is_array( $progress ) ? $progress : array();
+
+		$progress['total']       = isset( $progress['total'] ) ? (int) $progress['total'] : 0;
+		$progress['processed']   = isset( $progress['processed'] ) ? (int) $progress['processed'] : 0;
+		$progress['success']     = isset( $progress['success'] ) ? (int) $progress['success'] : 0;
+		$progress['failed']      = isset( $progress['failed'] ) ? (int) $progress['failed'] : 0;
+		$progress['skipped']     = isset( $progress['skipped'] ) ? (int) $progress['skipped'] : 0;
+		$progress['errors']      = isset( $progress['errors'] ) && is_array( $progress['errors'] ) ? $progress['errors'] : array();
+		$progress['status']      = 'stopped';
+		$progress['stopped']     = true;
+		$progress['status_text'] = 'Import stopped by user';
+
+		return $progress;
+	}
+
+	/**
 	 * AJAX handler to start XML import with progress tracking.
 	 */
 	public function ajax_start_xml_import() {
@@ -272,9 +355,10 @@ class Plugin {
 			@ini_set( 'memory_limit', '512M' ); // Increase memory limit
 		}
 		
-		// Verify nonce
-		if ( ! \wp_verify_nonce( $_POST['nonce'], 'uimptr_ajax_nonce' ) ) {
-			\wp_die( 'Security check failed' );
+		if ( function_exists( '\uimptr_check_ajax_request' ) ) {
+			\uimptr_check_ajax_request();
+		} else {
+			\check_ajax_referer( 'uimptr_ajax', 'nonce' );
 		}
 
 		// Check user permissions
@@ -299,16 +383,11 @@ class Plugin {
 		// Sanitize input
 		$skip_existing = isset( $_POST['skip_existing'] ) ? \sanitize_text_field( $_POST['skip_existing'] ) : '1';
 		
-		// Initialize progress tracking with site-specific key BEFORE creating options
-		$user_id = \get_current_user_id();
-		$site_hash = substr( md5( \home_url() ), 0, 8 ); // Add site uniqueness
-		$progress_key = 'uimptr_progress_' . $site_hash . '_' . $user_id;
-		
-		// Clean up any old stop file before starting new import (use system temp dir)
-		$stop_file = sys_get_temp_dir() . '/uimptr_stop_' . $site_hash . '_' . $user_id . '.flag';
-		if ( file_exists( $stop_file ) ) {
-			@unlink( $stop_file );
-		}
+		// Initialize progress tracking with site-specific keys before creating options.
+		$state_keys   = $this->get_import_state_keys();
+		$progress_key = $state_keys['progress_key'];
+		$stop_key     = $state_keys['stop_key'];
+		$this->clear_import_stop_request( $stop_key );
 		
 		$options = array(
 			'skip_existing' => (bool) intval( $skip_existing ),
@@ -332,11 +411,9 @@ class Plugin {
 		$xml_importer = new \UrlImageImporter\Importer\WordPressXmlImporter();
 		
 		// Set up progress callback
-		$progress_callback = function( $results, $status_text ) use ( $progress_key ) {
-			// Get current progress to preserve the stopped flag
-			$current_progress = \get_transient( $progress_key );
-			$is_stopped = ( $current_progress && isset( $current_progress['stopped'] ) && $current_progress['stopped'] );
-			
+		$progress_callback = function( $results, $status_text ) use ( $progress_key, $stop_key ) {
+			$is_stopped = $this->is_import_stop_requested( $stop_key );
+
 			$progress = array(
 				'total' => $results['total'],
 				'processed' => $results['processed'],
@@ -345,8 +422,8 @@ class Plugin {
 				'skipped' => $results['skipped'],
 				'errors' => $results['errors'],
 				'status' => $is_stopped ? 'stopped' : 'in_progress',
-				'status_text' => $status_text,
-				'stopped' => $is_stopped // Preserve the stopped flag!
+				'status_text' => $is_stopped ? 'Import stopped by user' : $status_text,
+				'stopped' => $is_stopped,
 			);
 			\set_transient( $progress_key, $progress, 3600 );
 		};
@@ -361,13 +438,13 @@ class Plugin {
 				error_log( 'URL Image Importer Error: ' . $e->getMessage() );
 			}
 			\delete_transient( $progress_key );
+			$this->clear_import_stop_request( $stop_key );
 			\delete_transient( 'uimptr_xml_import_' . \get_current_user_id() );
 			\wp_send_json_error( 'Import failed: ' . $e->getMessage() );
 		}
 		
-		// Check if import was stopped
-		$current_progress = \get_transient( $progress_key );
-		$was_stopped = $current_progress && isset( $current_progress['stopped'] ) && $current_progress['stopped'];
+		// Check if import was stopped using the dedicated stop signal.
+		$was_stopped = $this->is_import_stop_requested( $stop_key );
 		
 		// Update final progress
 		$final_progress = array(
@@ -378,9 +455,14 @@ class Plugin {
 			'skipped' => $import_results['skipped'],
 			'errors' => $import_results['errors'],
 			'status' => $was_stopped ? 'stopped' : 'completed',
-			'stopped' => $was_stopped
+			'stopped' => $was_stopped,
+			'status_text' => $was_stopped ? 'Import stopped by user' : 'Import completed',
 		);
 		\set_transient( $progress_key, $final_progress, 3600 );
+
+		if ( ! $was_stopped ) {
+			$this->clear_import_stop_request( $stop_key );
+		}
 		
 		// Clean up the media transient
 		\delete_transient( 'uimptr_xml_import_' . \get_current_user_id() );
@@ -392,14 +474,24 @@ class Plugin {
 	 * AJAX handler to get import progress.
 	 */
 	public function ajax_get_import_progress() {
-		// Check if user has an active import with site-specific key
-		$user_id = \get_current_user_id();
-		$site_hash = substr( md5( \home_url() ), 0, 8 );
-		$progress_key = 'uimptr_progress_' . $site_hash . '_' . $user_id;
-		$progress = \get_transient( $progress_key );
+		if ( function_exists( '\uimptr_check_ajax_request' ) ) {
+			\uimptr_check_ajax_request();
+		} else {
+			\check_ajax_referer( 'uimptr_ajax', 'nonce' );
+		}
+
+		$state_keys   = $this->get_import_state_keys();
+		$progress_key = $state_keys['progress_key'];
+		$stop_key     = $state_keys['stop_key'];
+		$progress     = \get_transient( $progress_key );
 		
-		if ( ! $progress ) {
+		if ( ! $progress && ! $this->is_import_stop_requested( $stop_key ) ) {
 			\wp_send_json_error( 'No active import found' );
+		}
+
+		if ( $this->is_import_stop_requested( $stop_key ) ) {
+			$progress = $this->get_stopped_progress_payload( $progress );
+			\set_transient( $progress_key, $progress, 3600 );
 		}
 		
 		\wp_send_json_success( $progress );
@@ -413,12 +505,15 @@ class Plugin {
 			error_log( 'URL Image Importer: ajax_stop_import called' );
 		}
 		
-		// Verify nonce
-		if ( ! isset( $_POST['nonce'] ) || ! \wp_verify_nonce( $_POST['nonce'], 'uimptr_ajax_nonce' ) ) {
-			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				error_log( 'URL Image Importer: Nonce verification failed' );
+		if ( function_exists( '\uimptr_verify_ajax_request_nonce' ) ) {
+			if ( ! \uimptr_verify_ajax_request_nonce() ) {
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					error_log( 'URL Image Importer: Nonce verification failed' );
+				}
+				\wp_send_json_error( 'Security check failed' );
 			}
-			\wp_send_json_error( 'Security check failed' );
+		} else {
+			\check_ajax_referer( 'uimptr_ajax', 'nonce' );
 		}
 
 		// Check user permissions
@@ -429,53 +524,19 @@ class Plugin {
 			\wp_send_json_error( 'Insufficient permissions' );
 		}
 
-		$user_id = \get_current_user_id();
-		$site_hash = substr( md5( \home_url() ), 0, 8 );
-		$progress_key = 'uimptr_progress_' . $site_hash . '_' . $user_id;
-		
-		// USE FILE-BASED FLAG in system temp dir (bypasses ALL caching issues and S3)
-		$stop_file = sys_get_temp_dir() . '/uimptr_stop_' . $site_hash . '_' . $user_id . '.flag';
-		file_put_contents( $stop_file, time() );
-		
-		// Also update transient for progress display
-		\delete_transient( $progress_key );
-		\wp_cache_flush();
-		
-		$progress = array(
-			'status' => 'stopped',
-			'stopped' => true,
-			'total' => 0,
-			'processed' => 0,
-			'success' => 0,
-			'failed' => 0,
-			'skipped' => 0,
-			'status_text' => 'Import stopped by user'
-		);
-		
+		$state_keys   = $this->get_import_state_keys();
+		$progress_key = $state_keys['progress_key'];
+		$stop_key     = $state_keys['stop_key'];
+
+		$this->request_import_stop( $stop_key );
+		$progress = $this->get_stopped_progress_payload( \get_transient( $progress_key ) );
 		\set_transient( $progress_key, $progress, 3600 );
-		
-		// Also write directly to options table as backup (bypasses object cache)
-		global $wpdb;
-		$option_name = '_transient_' . $progress_key;
-		$wpdb->query( $wpdb->prepare(
-			"INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')
-			ON DUPLICATE KEY UPDATE option_value = %s",
-			$option_name,
-			maybe_serialize( $progress ),
-			maybe_serialize( $progress )
-		) );
-		
-		// Force WordPress to flush any object cache multiple times to ensure it's written
-		\wp_cache_flush();
-		\wp_cache_flush(); // Flush twice for good measure
 		
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( 'URL Image Importer: Stop signal set for key: ' . $progress_key );
-			error_log( 'URL Image Importer: Stop file created: ' . $stop_file );
-			error_log( 'URL Image Importer: Stop file exists: ' . ( file_exists( $stop_file ) ? 'YES' : 'NO' ) );
-			// Verify transient was written
-			$verify = \get_transient( $progress_key );
-			error_log( 'URL Image Importer: Stop flag verified: ' . ( $verify && $verify['stopped'] ? 'YES' : 'NO' ) );
+			error_log( 'URL Image Importer: Stop transient key set: ' . $stop_key );
+			$verify = \get_transient( $stop_key );
+			error_log( 'URL Image Importer: Stop flag verified: ' . ( $verify ? 'YES' : 'NO' ) );
 		}
 		
 		\wp_send_json_success( array( 
@@ -488,9 +549,10 @@ class Plugin {
 	 * AJAX handler to start CSV import with progress tracking.
 	 */
 	public function ajax_start_csv_import() {
-		// Verify nonce
-		if ( ! \wp_verify_nonce( $_POST['nonce'], 'uimptr_ajax_nonce' ) ) {
-			\wp_send_json_error( 'Security check failed' );
+		if ( function_exists( '\uimptr_check_ajax_request' ) ) {
+			\uimptr_check_ajax_request();
+		} else {
+			\check_ajax_referer( 'uimptr_ajax', 'nonce' );
 		}
 
 		// Check user permissions
@@ -522,16 +584,10 @@ class Plugin {
 		// Sanitize input
 		$skip_existing = isset( $_POST['skip_existing'] ) ? \sanitize_text_field( $_POST['skip_existing'] ) : '1';
 		
-		// Initialize progress tracking with site-specific key
-		$user_id = \get_current_user_id();
-		$site_hash = substr( md5( \home_url() ), 0, 8 );
-		$progress_key = 'uimptr_progress_' . $site_hash . '_' . $user_id;
-		
-		// Clean up any old stop file before starting new import
-		$stop_file = sys_get_temp_dir() . '/uimptr_stop_' . $site_hash . '_' . $user_id . '.flag';
-		if ( file_exists( $stop_file ) ) {
-			@unlink( $stop_file );
-		}
+		$state_keys   = $this->get_import_state_keys();
+		$progress_key = $state_keys['progress_key'];
+		$stop_key     = $state_keys['stop_key'];
+		$this->clear_import_stop_request( $stop_key );
 		
 		$options = array(
 			'skip_existing' => (bool) intval( $skip_existing ),
@@ -555,11 +611,9 @@ class Plugin {
 		$csv_importer = new \UrlImageImporter\Importer\CsvImporter();
 		
 		// Set up progress callback
-		$progress_callback = function( $results ) use ( $progress_key ) {
-			// Get current progress to preserve the stopped flag
-			$current_progress = \get_transient( $progress_key );
-			$is_stopped = ( $current_progress && isset( $current_progress['stopped'] ) && $current_progress['stopped'] );
-			
+		$progress_callback = function( $results ) use ( $progress_key, $stop_key ) {
+			$is_stopped = $this->is_import_stop_requested( $stop_key );
+
 			$progress = array(
 				'total' => $results['total'],
 				'processed' => $results['processed'],
@@ -568,7 +622,8 @@ class Plugin {
 				'skipped' => $results['skipped'],
 				'errors' => $results['errors'],
 				'status' => $is_stopped ? 'stopped' : 'in_progress',
-				'stopped' => $is_stopped
+				'stopped' => $is_stopped,
+				'status_text' => $is_stopped ? 'Import stopped by user' : 'Import in progress',
 			);
 			\set_transient( $progress_key, $progress, 3600 );
 		};
@@ -586,13 +641,12 @@ class Plugin {
 				error_log( 'URL Image Importer Error: ' . $e->getMessage() );
 			}
 			\delete_transient( $progress_key );
+			$this->clear_import_stop_request( $stop_key );
 			\delete_transient( $csv_key );
 			\wp_send_json_error( 'Import failed: ' . $e->getMessage() );
 		}
 		
-		// Check if import was stopped
-		$current_progress = \get_transient( $progress_key );
-		$was_stopped = $current_progress && isset( $current_progress['stopped'] ) && $current_progress['stopped'];
+		$was_stopped = $this->is_import_stop_requested( $stop_key );
 		
 		// Update final progress
 		$final_progress = array(
@@ -603,9 +657,14 @@ class Plugin {
 			'skipped' => $import_results['skipped'],
 			'errors' => $import_results['errors'],
 			'status' => $was_stopped ? 'stopped' : 'completed',
-			'stopped' => $was_stopped
+			'stopped' => $was_stopped,
+			'status_text' => $was_stopped ? 'Import stopped by user' : 'Import completed',
 		);
 		\set_transient( $progress_key, $final_progress, 3600 );
+
+		if ( ! $was_stopped ) {
+			$this->clear_import_stop_request( $stop_key );
+		}
 		
 		// Clean up the CSV transient
 		\delete_transient( $csv_key );
