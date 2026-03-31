@@ -1533,6 +1533,57 @@ function uimptr_import_images_url_page() {
 }
 
 /**
+ * Get an image extension from a mime type.
+ *
+ * @param string $mime_type Mime type.
+ * @return string
+ */
+function uimptr_get_image_extension_from_mime_type( $mime_type ) {
+	$mime_map = array(
+		'image/jpeg'    => 'jpg',
+		'image/png'     => 'png',
+		'image/gif'     => 'gif',
+		'image/webp'    => 'webp',
+		'image/bmp'     => 'bmp',
+		'image/tiff'    => 'tiff',
+		'image/x-icon'  => 'ico',
+		'image/vnd.microsoft.icon' => 'ico',
+		'image/svg+xml' => 'svg',
+		'image/avif'    => 'avif',
+	);
+
+	$mime_type = strtolower( trim( (string) $mime_type ) );
+	if ( false !== strpos( $mime_type, ';' ) ) {
+		$mime_type = trim( strtok( $mime_type, ';' ) );
+	}
+
+	return $mime_map[ $mime_type ] ?? '';
+}
+
+/**
+ * Extract a filename from a Content-Disposition header.
+ *
+ * @param string $content_disposition Content-Disposition header value.
+ * @return string
+ */
+function uimptr_get_filename_from_content_disposition( $content_disposition ) {
+	$content_disposition = (string) $content_disposition;
+	if ( empty( $content_disposition ) ) {
+		return '';
+	}
+
+	if ( preg_match( '/filename\*=UTF-8\'\'([^;]+)/i', $content_disposition, $matches ) ) {
+		return sanitize_file_name( rawurldecode( trim( $matches[1], "\"' " ) ) );
+	}
+
+	if ( preg_match( '/filename="?([^\";]+)"?/i', $content_disposition, $matches ) ) {
+		return sanitize_file_name( trim( $matches[1], "\"' " ) );
+	}
+
+	return '';
+}
+
+/**
  * Function to import the image from a URL
  *
  * @param url $image_url URL of the image to import.
@@ -1567,6 +1618,9 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		return new WP_Error( 'invalid_image', 'No data received from URL.' );
 	}
 
+	$response_content_type = (string) wp_remote_retrieve_header( $response, 'content-type' );
+	$response_content_disposition = (string) wp_remote_retrieve_header( $response, 'content-disposition' );
+
 	// Extract filename from URL
 	$upload_dir = wp_upload_dir();
 	$filename_url_path = is_string( $image_url ) ? parse_url( $image_url, PHP_URL_PATH ) : false;
@@ -1576,6 +1630,14 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		$filename = basename( $filename_url_path );
 	}
 
+	// Prefer a real filename from the HTTP response when the URL path has no extension.
+	if ( empty( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) {
+		$header_filename = uimptr_get_filename_from_content_disposition( $response_content_disposition );
+		if ( ! empty( $header_filename ) ) {
+			$filename = $header_filename;
+		}
+	}
+
 	// Sanitize filename and ensure it has a base name
 	if ( ! $filename ) {
 		$filename = !empty($metadata['title']) ? sanitize_file_name( $metadata['title'] ) : 'imported_image_' . time();
@@ -1583,6 +1645,10 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 	
 	// Sanitize the filename
 	$filename = sanitize_file_name( $filename );
+	$filename_base = pathinfo( $filename, PATHINFO_FILENAME );
+	if ( empty( $filename_base ) ) {
+		$filename_base = !empty($metadata['title']) ? sanitize_file_name( $metadata['title'] ) : 'imported_image_' . time();
+	}
 	
 	// Create a temporary file first for validation
 	$temp_file = wp_tempnam( $filename );
@@ -1594,6 +1660,44 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 	
 	// SECURITY: Validate the actual file content using WordPress's image validation
 	$wp_filetype = wp_check_filetype_and_ext( $temp_file, $filename );
+
+	// Some image services use extensionless URLs. If needed, infer the extension from
+	// the response headers or the downloaded image bytes and validate again.
+	if (
+		( ! $wp_filetype['type'] || ! $wp_filetype['ext'] ) &&
+		empty( pathinfo( $filename, PATHINFO_EXTENSION ) )
+	) {
+		$detected_mime = $response_content_type;
+		$detected_ext  = uimptr_get_image_extension_from_mime_type( $detected_mime );
+
+		if ( empty( $detected_ext ) ) {
+			$image_info = @getimagesize( $temp_file );
+			if ( false !== $image_info && ! empty( $image_info['mime'] ) ) {
+				$detected_mime = $image_info['mime'];
+				$detected_ext  = uimptr_get_image_extension_from_mime_type( $detected_mime );
+			}
+		}
+
+		if ( empty( $detected_ext ) ) {
+			$svg_probe = file_get_contents( $temp_file, false, null, 0, 1024 );
+			if ( false !== $svg_probe && false !== stripos( $svg_probe, '<svg' ) ) {
+				$detected_mime = 'image/svg+xml';
+				$detected_ext  = 'svg';
+			}
+		}
+
+		if ( ! empty( $detected_ext ) ) {
+			$filename    = sanitize_file_name( $filename_base . '.' . $detected_ext );
+			$wp_filetype = wp_check_filetype_and_ext( $temp_file, $filename );
+
+			if ( ( ! $wp_filetype['type'] || ! $wp_filetype['ext'] ) && ! empty( $detected_mime ) ) {
+				$wp_filetype = array(
+					'ext'  => $detected_ext,
+					'type' => $detected_mime,
+				);
+			}
+		}
+	}
 	
 	// Clean up and reject if validation fails
 	if ( ! $wp_filetype['type'] || ! $wp_filetype['ext'] ) {
@@ -2859,19 +2963,36 @@ function uimptr_extract_urls_from_csv_content( $csv_content, $preserve_dates = f
 		fclose( $stream );
 		return new WP_Error( 'invalid_csv', 'Failed to parse CSV file.' );
 	}
+
+	$headers = array_map(
+		function( $header ) {
+			$header = preg_replace( '/^\xEF\xBB\xBF/', '', (string) $header );
+			$header = strtolower( trim( $header ) );
+			$header = preg_replace( '/\s+/', '_', $header );
+			return $header;
+		},
+		$headers
+	);
 	
-	$url_index = array_search( 'url', $headers );
+	$url_index = false;
+	foreach ( array( 'url', 'image_url' ) as $candidate ) {
+		$index = array_search( $candidate, $headers, true );
+		if ( false !== $index ) {
+			$url_index = $index;
+			break;
+		}
+	}
 	
 	if ( $url_index === false ) {
 		fclose( $stream );
-		return new WP_Error( 'missing_url_column', 'CSV file must contain a "url" column.' );
+		return new WP_Error( 'missing_url_column', 'CSV file must contain a "url" or "image url" column.' );
 	}
 	
 	// Find other column indexes
-	$title_index = array_search( 'title', $headers );
-	$description_index = array_search( 'description', $headers );
-	$alt_text_index = array_search( 'alt_text', $headers );
-	$date_index = array_search( 'date', $headers );
+	$title_index = array_search( 'title', $headers, true );
+	$description_index = array_search( 'description', $headers, true );
+	$alt_text_index = array_search( 'alt_text', $headers, true );
+	$date_index = array_search( 'date', $headers, true );
 	
 	$urls_data = array();
 	$images_only = isset( $_POST['images_only'] ) && $_POST['images_only'];
