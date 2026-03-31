@@ -2781,14 +2781,22 @@ function uimptr_ajax_download_url_mapping_csv() {
 	}
 
 	$download_filename = 'url-mapping-' . sanitize_file_name( $batch_id ) . '.csv';
-	$file_size         = filesize( $mapping_path );
+	@ini_set( 'zlib.output_compression', 'Off' );
+
+	// Clear any output buffers so the CSV download is the only response body.
+	while ( ob_get_level() > 0 ) {
+		ob_end_clean();
+	}
 
 	nocache_headers();
+	status_header( 200 );
+	header_remove( 'Content-Length' );
+	header_remove( 'Content-Encoding' );
 	header( 'Content-Type: text/csv; charset=utf-8' );
 	header( 'Content-Disposition: attachment; filename="' . $download_filename . '"' );
-	if ( false !== $file_size ) {
-		header( 'Content-Length: ' . $file_size );
-	}
+	header( 'Content-Transfer-Encoding: binary' );
+	header( 'Pragma: public' );
+	header( 'Expires: 0' );
 
 	$handle = fopen( $mapping_path, 'rb' );
 	if ( false === $handle ) {
@@ -2797,6 +2805,7 @@ function uimptr_ajax_download_url_mapping_csv() {
 
 	fpassthru( $handle );
 	fclose( $handle );
+	flush();
 	exit;
 }
 add_action( 'wp_ajax_uimptr_download_url_mapping_csv', 'uimptr_ajax_download_url_mapping_csv' );
