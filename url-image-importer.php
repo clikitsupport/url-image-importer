@@ -22,6 +22,148 @@ $upload_dir = wp_upload_dir();
 define( 'UIMPTR_PATH', plugin_dir_path( __FILE__ ) );
 define( 'UIMPTR_VERSION', '1.0.8' );
 define( 'UPLOADBLOGSDIR', $upload_dir['basedir'] );  // Use basedir for root uploads folder, not path (current month)
+define( 'UIMPTR_AJAX_NONCE_ACTION', 'uimptr_ajax' );
+define( 'UIMPTR_AJAX_NONCE_FIELD', 'nonce' );
+
+/**
+ * Get the shared AJAX nonce action name.
+ *
+ * @return string
+ */
+function uimptr_get_ajax_nonce_action() {
+	return UIMPTR_AJAX_NONCE_ACTION;
+}
+
+/**
+ * Get the shared AJAX nonce field name.
+ *
+ * @return string
+ */
+function uimptr_get_ajax_nonce_field() {
+	return UIMPTR_AJAX_NONCE_FIELD;
+}
+
+/**
+ * Get the current user ID used for isolating per-user import state.
+ *
+ * @return int
+ */
+function uimptr_get_state_user_id() {
+	$user_id = get_current_user_id();
+
+	return $user_id > 0 ? (int) $user_id : 0;
+}
+
+/**
+ * Create a shared AJAX nonce for plugin requests.
+ *
+ * @return string
+ */
+function uimptr_create_ajax_nonce() {
+	return wp_create_nonce( uimptr_get_ajax_nonce_action() );
+}
+
+/**
+ * Create a cryptographically strong batch ID seed for admin-side fallback use.
+ *
+ * @return string
+ */
+function uimptr_create_batch_id_seed() {
+	try {
+		return bin2hex( random_bytes( 16 ) );
+	} catch ( Exception $exception ) {
+		return strtolower( wp_generate_password( 32, false, false ) );
+	}
+}
+
+/**
+ * Get a sanitized AJAX nonce value from the current request.
+ *
+ * @param string|null $field Optional nonce field name.
+ * @return string
+ */
+function uimptr_get_ajax_request_nonce( $field = null ) {
+	$field = $field ? $field : uimptr_get_ajax_nonce_field();
+
+	if ( ! isset( $_REQUEST[ $field ] ) ) {
+		return '';
+	}
+
+	return sanitize_text_field( wp_unslash( $_REQUEST[ $field ] ) );
+}
+
+/**
+ * Verify the shared AJAX nonce from the current request.
+ *
+ * @param string|null $field Optional nonce field name.
+ * @return bool
+ */
+function uimptr_verify_ajax_request_nonce( $field = null ) {
+	return (bool) wp_verify_nonce( uimptr_get_ajax_request_nonce( $field ), uimptr_get_ajax_nonce_action() );
+}
+
+/**
+ * Enforce the shared AJAX nonce for a request.
+ *
+ * @param string|null $field Optional nonce field name.
+ * @return void
+ */
+function uimptr_check_ajax_request( $field = null ) {
+	check_ajax_referer( uimptr_get_ajax_nonce_action(), $field ? $field : uimptr_get_ajax_nonce_field() );
+}
+
+/**
+ * Delete a file while logging failures instead of suppressing them.
+ *
+ * @param string $file_path Absolute file path.
+ * @param string $context   Cleanup context for diagnostics.
+ * @return bool
+ */
+function uimptr_delete_file_with_logging( $file_path, $context = '' ) {
+	$file_path = (string) $file_path;
+
+	if ( '' === $file_path ) {
+		return false;
+	}
+
+	clearstatcache( true, $file_path );
+	if ( ! file_exists( $file_path ) ) {
+		return true;
+	}
+
+	$unlink_error = '';
+
+	set_error_handler(
+		function( $severity, $message ) use ( &$unlink_error ) {
+			$unlink_error = (string) $message;
+			return true;
+		}
+	);
+
+	try {
+		$deleted = unlink( $file_path );
+	} finally {
+		restore_error_handler();
+	}
+
+	clearstatcache( true, $file_path );
+	if ( $deleted || ! file_exists( $file_path ) ) {
+		return true;
+	}
+
+	$context = trim( (string) $context );
+	$details = '' !== $unlink_error ? $unlink_error : 'Unknown filesystem error.';
+	error_log(
+		sprintf(
+			'URL Image Importer: Failed to delete file%s: %s. %s',
+			'' !== $context ? ' during ' . $context : '',
+			$file_path,
+			$details
+		)
+	);
+
+	return false;
+}
 
 // Composer autoload for PSR-4 classes
 $autoload_loaded = false;
@@ -173,8 +315,8 @@ function uimptr_check_svg_filetype( $data, $file, $filename, $mimes ) {
 /**
  * Sanitize SVG content for security using whitelist-based sanitization
  * 
- * Uses the enshrined/svg-sanitize library for comprehensive XSS protection.
- * Falls back to an extended blacklist approach if the library is unavailable.
+ * Uses the enshrined/svg-sanitize library when available.
+ * Falls back to a DOM-based whitelist sanitizer when the library is unavailable.
  * 
  * @param string $content The raw SVG content to sanitize
  * @return string|false The sanitized SVG content, or false if sanitization fails
@@ -193,75 +335,451 @@ function uimptr_sanitize_svg_content( $content ) {
 		
 		return $sanitized;
 	}
-	
-	// Fallback: Extended blacklist-based sanitization if library is not available
-	// This includes comprehensive coverage of all known XSS vectors in SVG
-	
-	// Dangerous elements that can execute scripts or load external content
-	$dangerous_elements = array(
-		'script', 'object', 'embed', 'link', 'style', 'meta', 'iframe', 
-		'frame', 'frameset', 'form', 'input', 'button', 'textarea',
-		'foreignobject', 'handler', 'listener'
-	);
-	
-	// Comprehensive list of dangerous event attributes including SVG animation events
-	$dangerous_attributes = array(
-		// Standard DOM events
-		'onload', 'onclick', 'onmouseover', 'onerror', 'onmouseout', 
-		'onmousemove', 'onmousedown', 'onmouseup', 'onfocus', 'onblur',
-		'onkeydown', 'onkeyup', 'onkeypress', 'onchange', 'onselect',
-		'onsubmit', 'onreset', 'onabort', 'onunload', 'onresize',
-		'ondblclick', 'ondrag', 'ondragend', 'ondragenter', 'ondragleave',
-		'ondragover', 'ondragstart', 'ondrop', 'oninput', 'oninvalid',
-		'onscroll', 'onwheel', 'oncopy', 'oncut', 'onpaste',
-		'oncontextmenu', 'ontouchstart', 'ontouchmove', 'ontouchend', 'ontouchcancel',
-		'onpointerdown', 'onpointermove', 'onpointerup', 'onpointercancel',
-		'onpointerenter', 'onpointerleave', 'onpointerover', 'onpointerout',
-		'ongotpointercapture', 'onlostpointercapture',
-		
-		// SVG animation events (SMIL)
-		'onbegin', 'onend', 'onrepeat', 'onactivate',
-		
-		// SVG-specific events
-		'onfocusin', 'onfocusout', 'onzoom',
-		
-		// Media events (for SVG media elements)
-		'onplay', 'onpause', 'onended', 'onvolumechange', 'ontimeupdate',
-		'oncanplay', 'oncanplaythrough', 'ondurationchange', 'onemptied',
-		'onloadeddata', 'onloadedmetadata', 'onloadstart', 'onprogress',
-		'onratechange', 'onseeked', 'onseeking', 'onstalled', 'onsuspend',
-		'onwaiting', 'onplaying',
-		
-		// Other dangerous attributes
-		'onafterprint', 'onbeforeprint', 'onbeforeunload', 'onhashchange',
-		'onmessage', 'onoffline', 'ononline', 'onpagehide', 'onpageshow',
-		'onpopstate', 'onstorage', 'onanimationstart', 'onanimationend',
-		'onanimationiteration', 'ontransitionend', 'ontransitionstart',
-		'ontransitionrun', 'ontransitioncancel'
-	);
-	
-	// Remove dangerous elements
-	foreach ( $dangerous_elements as $element ) {
-		$content = preg_replace( '#<' . $element . '[^>]*>.*?</' . $element . '>#is', '', $content );
-		$content = preg_replace( '#<' . $element . '[^>]*/?>#is', '', $content );
+
+	return uimptr_sanitize_svg_content_with_dom( $content );
+}
+
+/**
+ * DOM-based SVG sanitizer for environments where the svg-sanitize library is unavailable.
+ *
+ * @param string $content Raw SVG content.
+ * @return string|false
+ */
+function uimptr_sanitize_svg_content_with_dom( $content ) {
+	if ( ! class_exists( 'DOMDocument' ) ) {
+		return false;
 	}
-	
-	// Remove dangerous attributes (handles quoted and unquoted values)
-	foreach ( $dangerous_attributes as $attr ) {
-		$content = preg_replace( '#\s' . $attr . '\s*=\s*["\'][^"\']*["\']#is', '', $content );
-		$content = preg_replace( '#\s' . $attr . '\s*=\s*[^>\s]*#is', '', $content );
+
+	$document = uimptr_load_svg_document_securely( $content );
+	if ( is_wp_error( $document ) ) {
+		return false;
 	}
-	
-	// Remove javascript:, data:, and vbscript: URLs from href, src, xlink:href, and action attributes
-	$content = preg_replace( '#(href|src|action|xlink:href)\s*=\s*["\']?\s*(javascript|data|vbscript):[^"\'>\s]*#is', '', $content );
-	
-	// Remove set and animate elements that target dangerous attributes
-	$content = preg_replace( '#<(set|animate)[^>]*(attributeName\s*=\s*["\']?(on[a-z]+)["\']?)[^>]*/?>#is', '', $content );
-	
-	// Remove use elements with external references (potential XSS vector)
-	$content = preg_replace( '#<use[^>]*xlink:href\s*=\s*["\']?https?://[^"\'>\s]*#is', '<use', $content );
-	
-	return $content;
+
+	$root = $document->documentElement;
+	if ( ! $root || 'svg' !== strtolower( $root->localName ) ) {
+		return false;
+	}
+
+	if ( ! uimptr_is_allowed_svg_namespace( $root->namespaceURI ) ) {
+		return false;
+	}
+
+	uimptr_sanitize_svg_element_node( $root );
+
+	$sanitized = $document->saveXML( $document->documentElement );
+
+	return is_string( $sanitized ) && '' !== trim( $sanitized ) ? $sanitized : false;
+}
+
+/**
+ * Load an SVG document securely for DOM-based sanitization.
+ *
+ * @param string $content Raw SVG content.
+ * @return DOMDocument|WP_Error
+ */
+function uimptr_load_svg_document_securely( $content ) {
+	$content = (string) $content;
+
+	if ( preg_match( '/<!DOCTYPE|<!ENTITY/i', $content ) ) {
+		return new WP_Error( 'unsafe_svg', 'SVG documents with DOCTYPE or ENTITY declarations are not allowed.' );
+	}
+
+	$document                               = new DOMDocument();
+	$document->preserveWhiteSpace           = false;
+	$document->formatOutput                 = false;
+	$previous_use_internal_errors           = libxml_use_internal_errors( true );
+	$restore_entity_loader                  = false;
+	$previous_entity_loader_state           = null;
+	$libxml_options                         = LIBXML_NONET | LIBXML_NOCDATA | LIBXML_NOERROR | LIBXML_NOWARNING;
+
+	if ( function_exists( 'libxml_disable_entity_loader' ) && PHP_VERSION_ID < 80000 ) {
+		$previous_entity_loader_state = libxml_disable_entity_loader( true );
+		$restore_entity_loader        = true;
+	}
+
+	$loaded = $document->loadXML( $content, $libxml_options );
+
+	libxml_clear_errors();
+	libxml_use_internal_errors( $previous_use_internal_errors );
+
+	if ( $restore_entity_loader ) {
+		libxml_disable_entity_loader( $previous_entity_loader_state );
+	}
+
+	if ( ! $loaded ) {
+		return new WP_Error( 'invalid_svg', 'Failed to parse SVG file.' );
+	}
+
+	return $document;
+}
+
+/**
+ * Sanitize an SVG element node recursively using a whitelist.
+ *
+ * @param DOMElement $element Element to sanitize.
+ * @return void
+ */
+function uimptr_sanitize_svg_element_node( DOMElement $element ) {
+	$allowed_elements = uimptr_get_allowed_svg_elements();
+	$allowed_attrs    = uimptr_get_allowed_svg_attributes();
+
+	$children = array();
+	foreach ( $element->childNodes as $child_node ) {
+		$children[] = $child_node;
+	}
+
+	foreach ( $children as $child_node ) {
+		if ( XML_ELEMENT_NODE === $child_node->nodeType ) {
+			$child_name = strtolower( $child_node->localName );
+			if ( ! uimptr_is_allowed_svg_namespace( $child_node->namespaceURI ) || ! isset( $allowed_elements[ $child_name ] ) ) {
+				$element->removeChild( $child_node );
+				continue;
+			}
+
+			uimptr_sanitize_svg_attributes( $child_node, $allowed_attrs );
+			uimptr_sanitize_svg_element_node( $child_node );
+			continue;
+		}
+
+		if ( XML_COMMENT_NODE === $child_node->nodeType || XML_PI_NODE === $child_node->nodeType || XML_DOCUMENT_TYPE_NODE === $child_node->nodeType ) {
+			$element->removeChild( $child_node );
+		}
+	}
+
+	uimptr_sanitize_svg_attributes( $element, $allowed_attrs );
+}
+
+/**
+ * Sanitize attributes on an SVG element using a whitelist.
+ *
+ * @param DOMElement $element       SVG element.
+ * @param array      $allowed_attrs Allowed attribute lookup table.
+ * @return void
+ */
+function uimptr_sanitize_svg_attributes( DOMElement $element, array $allowed_attrs ) {
+	if ( ! $element->hasAttributes() ) {
+		return;
+	}
+
+	$attributes = array();
+	foreach ( $element->attributes as $attribute ) {
+		$attributes[] = $attribute;
+	}
+
+	foreach ( $attributes as $attribute ) {
+		$attr_name       = strtolower( $attribute->nodeName );
+		$attr_local_name = strtolower( $attribute->localName ? $attribute->localName : $attribute->nodeName );
+		$attr_value      = $attribute->value;
+
+		if ( 0 === strpos( $attr_name, 'on' ) || 0 === strpos( $attr_local_name, 'on' ) ) {
+			$element->removeAttributeNode( $attribute );
+			continue;
+		}
+
+		if ( ! isset( $allowed_attrs[ $attr_name ] ) && ! isset( $allowed_attrs[ $attr_local_name ] ) ) {
+			$element->removeAttributeNode( $attribute );
+			continue;
+		}
+
+		if ( ! uimptr_is_safe_svg_attribute_value( $attr_name, $attr_value ) ) {
+			$element->removeAttributeNode( $attribute );
+			continue;
+		}
+
+		if ( 'style' === $attr_local_name ) {
+			$sanitized_style = uimptr_sanitize_svg_style_attribute( $attr_value );
+			if ( '' === $sanitized_style ) {
+				$element->removeAttributeNode( $attribute );
+			} else {
+				$attribute->value = $sanitized_style;
+			}
+		}
+	}
+}
+
+/**
+ * Get the whitelist of safe SVG elements for DOM sanitization.
+ *
+ * @return array
+ */
+function uimptr_get_allowed_svg_elements() {
+	static $allowed_elements = null;
+
+	if ( null === $allowed_elements ) {
+		$allowed_elements = array_fill_keys(
+			array(
+				'svg',
+				'g',
+				'defs',
+				'title',
+				'desc',
+				'symbol',
+				'use',
+				'path',
+				'rect',
+				'circle',
+				'ellipse',
+				'line',
+				'polyline',
+				'polygon',
+				'clippath',
+				'mask',
+				'lineargradient',
+				'radialgradient',
+				'stop',
+				'pattern',
+				'marker',
+				'text',
+				'tspan',
+				'textpath',
+			),
+			true
+		);
+	}
+
+	return $allowed_elements;
+}
+
+/**
+ * Get the whitelist of safe SVG attributes for DOM sanitization.
+ *
+ * @return array
+ */
+function uimptr_get_allowed_svg_attributes() {
+	static $allowed_attributes = null;
+
+	if ( null === $allowed_attributes ) {
+		$allowed_attributes = array_fill_keys(
+			array(
+				'id',
+				'class',
+				'xmlns',
+				'xmlns:xlink',
+				'viewbox',
+				'version',
+				'width',
+				'height',
+				'x',
+				'y',
+				'x1',
+				'y1',
+				'x2',
+				'y2',
+				'cx',
+				'cy',
+				'r',
+				'rx',
+				'ry',
+				'd',
+				'points',
+				'transform',
+				'fill',
+				'fill-opacity',
+				'fill-rule',
+				'stroke',
+				'stroke-opacity',
+				'stroke-width',
+				'stroke-linecap',
+				'stroke-linejoin',
+				'stroke-miterlimit',
+				'stroke-dasharray',
+				'stroke-dashoffset',
+				'opacity',
+				'display',
+				'visibility',
+				'preserveaspectratio',
+				'gradientunits',
+				'gradienttransform',
+				'spreadmethod',
+				'offset',
+				'stop-color',
+				'stop-opacity',
+				'patternunits',
+				'patterncontentunits',
+				'patterntransform',
+				'markerwidth',
+				'markerheight',
+				'markerunits',
+				'refx',
+				'refy',
+				'orient',
+				'clippathunits',
+				'maskunits',
+				'maskcontentunits',
+				'href',
+				'xlink:href',
+				'clip-path',
+				'mask',
+				'style',
+				'font-family',
+				'font-size',
+				'font-style',
+				'font-weight',
+				'text-anchor',
+				'dominant-baseline',
+				'letter-spacing',
+				'textlength',
+				'lengthadjust',
+				'startoffset',
+				'role',
+				'aria-hidden',
+				'focusable',
+			),
+			true
+		);
+	}
+
+	return $allowed_attributes;
+}
+
+/**
+ * Get the whitelist of safe CSS properties for SVG style attributes.
+ *
+ * @return array
+ */
+function uimptr_get_allowed_svg_style_properties() {
+	static $allowed_properties = null;
+
+	if ( null === $allowed_properties ) {
+		$allowed_properties = array_fill_keys(
+			array(
+				'fill',
+				'fill-opacity',
+				'fill-rule',
+				'stroke',
+				'stroke-opacity',
+				'stroke-width',
+				'stroke-linecap',
+				'stroke-linejoin',
+				'stroke-miterlimit',
+				'stroke-dasharray',
+				'stroke-dashoffset',
+				'opacity',
+				'display',
+				'visibility',
+				'stop-color',
+				'stop-opacity',
+				'font-family',
+				'font-size',
+				'font-style',
+				'font-weight',
+				'text-anchor',
+				'dominant-baseline',
+				'letter-spacing',
+			),
+			true
+		);
+	}
+
+	return $allowed_properties;
+}
+
+/**
+ * Check whether an SVG attribute value is safe.
+ *
+ * @param string $attr_name  Attribute name.
+ * @param string $attr_value Attribute value.
+ * @return bool
+ */
+function uimptr_is_safe_svg_attribute_value( $attr_name, $attr_value ) {
+	$attr_name  = strtolower( (string) $attr_name );
+	$attr_value = (string) $attr_value;
+	$decoded    = html_entity_decode( $attr_value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+	if ( preg_match( '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $decoded ) ) {
+		return false;
+	}
+
+	if ( in_array( $attr_name, array( 'xmlns', 'xmlns:xlink' ), true ) ) {
+		$namespace_whitelist = array(
+			'xmlns'       => 'http://www.w3.org/2000/svg',
+			'xmlns:xlink' => 'http://www.w3.org/1999/xlink',
+		);
+
+		return isset( $namespace_whitelist[ $attr_name ] ) && $namespace_whitelist[ $attr_name ] === trim( $decoded );
+	}
+
+	if ( in_array( $attr_name, array( 'href', 'xlink:href' ), true ) ) {
+		return uimptr_is_safe_local_svg_reference( $decoded );
+	}
+
+	if ( 'style' === $attr_name ) {
+		return true;
+	}
+
+	if ( preg_match( '/(?:javascript|vbscript|data)\s*:/i', $decoded ) ) {
+		return false;
+	}
+
+	if ( preg_match( '/expression\s*\(|@import/i', $decoded ) ) {
+		return false;
+	}
+
+	if ( false !== stripos( $decoded, 'url(' ) ) {
+		return (bool) preg_match( '/^\s*url\(\s*[\'"]?#[-A-Za-z0-9_:.]+[\'"]?\s*\)\s*$/i', $decoded );
+	}
+
+	return true;
+}
+
+/**
+ * Check whether an SVG reference points only to a local fragment.
+ *
+ * @param string $value Reference value.
+ * @return bool
+ */
+function uimptr_is_safe_local_svg_reference( $value ) {
+	$value = trim( (string) $value );
+
+	if ( '' === $value ) {
+		return false;
+	}
+
+	return (bool) preg_match( '/^#[-A-Za-z0-9_:.]+$/', $value );
+}
+
+/**
+ * Sanitize an inline SVG style attribute value using a CSS property whitelist.
+ *
+ * @param string $style_value Raw style attribute.
+ * @return string
+ */
+function uimptr_sanitize_svg_style_attribute( $style_value ) {
+	$allowed_properties = uimptr_get_allowed_svg_style_properties();
+	$sanitized_rules    = array();
+	$rules              = explode( ';', (string) $style_value );
+
+	foreach ( $rules as $rule ) {
+		$rule = trim( $rule );
+		if ( '' === $rule || false === strpos( $rule, ':' ) ) {
+			continue;
+		}
+
+		list( $property, $value ) = array_map( 'trim', explode( ':', $rule, 2 ) );
+		$property = strtolower( $property );
+
+		if ( '' === $property || ! isset( $allowed_properties[ $property ] ) ) {
+			continue;
+		}
+
+		if ( ! uimptr_is_safe_svg_attribute_value( $property, $value ) ) {
+			continue;
+		}
+
+		$sanitized_rules[] = $property . ':' . $value;
+	}
+
+	return implode( ';', $sanitized_rules );
+}
+
+/**
+ * Check whether an element namespace is permitted for SVG sanitization.
+ *
+ * @param string|null $namespace_uri Namespace URI.
+ * @return bool
+ */
+function uimptr_is_allowed_svg_namespace( $namespace_uri ) {
+	return null === $namespace_uri || '' === $namespace_uri || 'http://www.w3.org/2000/svg' === $namespace_uri;
 }
 
 // Fallback menu registration - only add if PSR-4 Plugin class didn't register it
@@ -309,10 +827,11 @@ function uimptr_admin_styles() {
 		wp_localize_script( 'uimptr-js', 'bfu_data', $data );
 		
 		// Add AJAX data for import functionality
-		$ajax_url = admin_url( 'admin-ajax.php' );
 		$uimptr_ajax_data = array(
-			'ajax_url' => $ajax_url,
-			'nonce' => wp_create_nonce( 'uimptr_ajax' )
+			'ajax_url'    => admin_url( 'admin-ajax.php' ),
+			'nonce'       => uimptr_create_ajax_nonce(),
+			'nonce_field' => uimptr_get_ajax_nonce_field(),
+			'batch_seed'  => uimptr_create_batch_id_seed(),
 		);
 		wp_localize_script( 'uimptr-js', 'uimptr_ajax', $uimptr_ajax_data );
 		
@@ -383,7 +902,7 @@ function uimptr_handle_xml_import() {
 	$results = $xml_importer->process_xml_import( $temp_file, $options );
 
 	// Clean up temporary file
-	unlink( $temp_file );
+	uimptr_delete_file_with_logging( $temp_file, 'legacy XML import temp file cleanup' );
 
 	return $results;
 }
@@ -422,21 +941,6 @@ function uimptr_import_images_url_page() {
 		echo '</p></div>';
 	}
 	
-	// Debug feature: Show screen ID and promotional notice status (add ?debug_notices=1 to URL)
-	if ( isset( $_GET['debug_notices'] ) && current_user_can( 'manage_options' ) ) {
-		$screen = get_current_screen();
-		$promo_notice_status = get_user_meta( get_current_user_id(), 'uimptr_notice_big_file_form_uploads_promo', true );
-		$bfu_active = function_exists('is_plugin_active') && is_plugin_active('tuxedo-big-file-uploads/tuxedo_big_file_uploads.php');
-		
-		echo '<div class="notice notice-info"><p>';
-		echo '<strong>Debug Info:</strong><br>';
-		echo 'Screen ID: <code>' . esc_html( $screen->id ) . '</code><br>';
-		echo 'PromoNotice Status: <code>' . esc_html( $promo_notice_status ? print_r($promo_notice_status, true) : 'Not set (should show)' ) . '</code><br>';
-		echo 'Big File Uploads Active: <code>' . ( $bfu_active ? 'Yes (promos hidden)' : 'No (promos should show)' ) . '</code><br>';
-		echo 'User Can Manage Options: <code>' . ( current_user_can('manage_options') ? 'Yes' : 'No' ) . '</code>';
-		echo '</p></div>';
-	}
-
 	$results = array();
 
 	// Handle URL Import
@@ -546,6 +1050,9 @@ function uimptr_import_images_url_page() {
 							<button type="button" id="start-url-import" class="btn text-nowrap btn-primary btn-lg"><?php esc_html_e( 'Import Images from URLs', 'url-image-importer' ); ?></button>
 						</div>
 					</div>
+					<p class="description" style="text-align: center; margin-bottom: 10px;">
+						<?php esc_html_e( 'For dedicated high-speed servers, import in runs of 500-2,000 URLs for the best balance of speed and reliability.', 'url-image-importer' ); ?>
+					</p>
 					
 					<!-- Progress Bar for URL Import -->
 					<div id="url-progress-container" style="display: none; margin-top: 20px;">
@@ -618,6 +1125,9 @@ function uimptr_import_images_url_page() {
 							<button type="button" id="start-xml-import" class="btn text-nowrap btn-primary btn-lg"><?php esc_html_e( 'Import from XML File', 'url-image-importer' ); ?></button>
 						</div>
 					</div>
+					<p class="description" style="text-align: center; margin-bottom: 10px;">
+						<?php esc_html_e( 'For dedicated high-speed servers, import in runs of 500-2,000 URLs for the best balance of speed and reliability.', 'url-image-importer' ); ?>
+					</p>
 					
 					<!-- Progress Bar for XML Import -->
 					<div id="xml-progress-container" style="display: none; margin-top: 20px;">
@@ -696,6 +1206,9 @@ function uimptr_import_images_url_page() {
 						<button type="button" id="start-csv-import" class="btn text-nowrap btn-primary btn-lg"><?php esc_html_e( 'Import from CSV File', 'url-image-importer' ); ?></button>
 					</div>
 				</div>
+				<p class="description" style="text-align: center; margin-bottom: 10px;">
+					<?php esc_html_e( 'For dedicated high-speed servers, import in runs of 500-2,000 URLs for the best balance of speed and reliability.', 'url-image-importer' ); ?>
+				</p>
 				
 				<!-- Progress Bar for CSV Import -->
 				<div id="csv-progress-container" style="display: none; margin-top: 20px;">
@@ -802,7 +1315,9 @@ function uimptr_import_images_url_page() {
 		if (typeof uimptr_ajax === 'undefined') {
 			window.uimptr_ajax = {
 				ajax_url: '<?php echo admin_url( 'admin-ajax.php' ); ?>',
-				nonce: '<?php echo wp_create_nonce( 'uimptr_ajax' ); ?>'
+				nonce: '<?php echo esc_js( uimptr_create_ajax_nonce() ); ?>',
+				nonce_field: '<?php echo esc_js( uimptr_get_ajax_nonce_field() ); ?>',
+				batch_seed: '<?php echo esc_js( uimptr_create_batch_id_seed() ); ?>'
 			};
 		}
 		
@@ -863,6 +1378,33 @@ function uimptr_import_images_url_page() {
 		var activeImportBatchId = null;
 		var activeImportType = null;
 		var previewData = null;
+		var batchIdCounter = 0;
+
+		function generateBatchId(prefix) {
+			var normalizedPrefix = String(prefix || 'batch').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+			var randomPart = '';
+			var i;
+
+			if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+				randomPart = window.crypto.randomUUID().replace(/-/g, '').toLowerCase();
+			} else if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+				var bytes = new Uint8Array(16);
+				window.crypto.getRandomValues(bytes);
+				for (i = 0; i < bytes.length; i++) {
+					randomPart += ('0' + bytes[i].toString(16)).slice(-2);
+				}
+			} else {
+				batchIdCounter += 1;
+				randomPart = String(uimptr_ajax.batch_seed || 'batchseed') + '-' + Date.now() + '-' + batchIdCounter;
+				randomPart = randomPart.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+			}
+
+			if (!normalizedPrefix) {
+				normalizedPrefix = 'batch';
+			}
+
+			return normalizedPrefix + '-' + randomPart;
+		}
 		
 		// Preview modal handlers
 		$('#close-preview, #cancel-import-preview').click(function() {
@@ -903,7 +1445,7 @@ function uimptr_import_images_url_page() {
 			$('#import-preview-modal').hide();
 			
 			// Generate batch ID
-			activeImportBatchId = previewData.type + '-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+			activeImportBatchId = generateBatchId(previewData.type);
 			activeImportType = previewData.type;
 			
 			// Show appropriate progress container and reset stats
@@ -953,7 +1495,7 @@ function uimptr_import_images_url_page() {
 			$('#cancel-url-import').show();
 			
 			// Generate batch ID and set active import tracking
-			activeImportBatchId = 'url-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+			activeImportBatchId = generateBatchId('url');
 			activeImportType = 'url';
 			
 			updateProgress('url', 0, urls.length, '<?php esc_html_e( 'Starting URL import...', 'url-image-importer' ); ?>');
@@ -979,20 +1521,26 @@ function uimptr_import_images_url_page() {
 				forceReimport = $('#csv-import input[name="csv_force_reimport"]:checked').length > 0;
 			}
 			// URL imports don't have force_reimport option, so it stays false
+
+			var requestData = {
+				action: 'uimptr_batch_import',
+				nonce: uimptr_ajax.nonce,
+				batch_id: batchId,
+				start_index: startIndex,
+				batch_size: 3, // Smaller batch for stability
+				preserve_dates: preserveDates,
+				force_reimport: forceReimport
+			};
+
+			// Send URL payload only on the first request to reduce request size for large imports.
+			if (startIndex === 0 && Array.isArray(urls)) {
+				requestData.urls = JSON.stringify(urls);
+			}
 			
 			$.ajax({
 				url: uimptr_ajax.ajax_url,
 				type: 'POST',
-				data: {
-					action: 'uimptr_batch_import',
-					nonce: uimptr_ajax.nonce,
-					batch_id: batchId,
-					start_index: startIndex,
-					batch_size: 3, // Smaller batch for URL imports
-					urls: JSON.stringify(urls),
-					preserve_dates: preserveDates,
-					force_reimport: forceReimport
-				},
+				data: requestData,
 				success: function(response) {
 					if (response.success) {
 						var data = response.data;
@@ -1020,12 +1568,18 @@ function uimptr_import_images_url_page() {
 							// Use cumulative stats for completion message, not just final batch
 							var totalImported = data.stats ? data.stats.success : finalResults.length;
 							var totalErrors = data.stats ? data.stats.failed : finalErrors.length;
+
+							var mappingData = {
+								available: !!data.mapping_available,
+								rows: data.mapping_rows || 0,
+								batchId: data.mapping_batch_id || ''
+							};
 							
-							finishImport(type, totalImported, totalErrors, results);
+							finishImport(type, totalImported, totalErrors, results, mappingData);
 						} else {
 							// Continue with next batch
 							setTimeout(function() {
-								processBatchImport(batchId, urls, data.next_index, type);
+								processBatchImport(batchId, null, data.next_index, type);
 							}, 200);
 						}
 					} else {
@@ -1077,7 +1631,7 @@ function uimptr_import_images_url_page() {
 				success: function(response) {
 					if (response.success && response.data.urls) {
 						// Store the batch ID for potential cancellation
-						var xmlBatchId = response.data.batch_id || 'xml-' + Date.now();
+						var xmlBatchId = response.data.batch_id || generateBatchId('xml');
 						activeImportBatchId = xmlBatchId;
 						activeImportType = 'xml';
 						
@@ -1172,6 +1726,10 @@ function uimptr_import_images_url_page() {
 			// This will be checked on the server side during batch processing
 			// The client-side check is mainly for immediate UI feedback
 			return false; // Server handles the real cancellation check
+		}
+
+		function getMappingDownloadUrl(batchId) {
+			return uimptr_ajax.ajax_url + '?action=uimptr_download_url_mapping_csv&nonce=' + encodeURIComponent(uimptr_ajax.nonce) + '&batch_id=' + encodeURIComponent(batchId);
 		}
 		
 		// Preview Functions
@@ -1298,7 +1856,7 @@ function uimptr_import_images_url_page() {
 			});
 		}
 		
-		function finishImport(type, imported, errors, results) {
+		function finishImport(type, imported, errors, results, mappingData) {
 			var message = '<?php esc_html_e( 'Import completed!', 'url-image-importer' ); ?> ' + 
 				'<?php esc_html_e( 'Imported:', 'url-image-importer' ); ?> ' + imported + ', ' +
 				'<?php esc_html_e( 'Errors:', 'url-image-importer' ); ?> ' + errors;
@@ -1308,19 +1866,35 @@ function uimptr_import_images_url_page() {
 					'<?php esc_html_e( 'Imported:', 'url-image-importer' ); ?> ' + imported + ', ' +
 					'<?php esc_html_e( 'Errors:', 'url-image-importer' ); ?> ' + errors;
 			}
+
+			if (mappingData && mappingData.available) {
+				message += ', <?php esc_html_e( 'Mapped URLs:', 'url-image-importer' ); ?> ' + mappingData.rows;
+			}
 			
 			$('#' + type + '-progress-text').text(message);
+			var $resultsContainer = $('#' + type + '-import-results');
 			
 			// Only show detailed results if there are any
 			if (results.length > 0) {
-				$('#' + type + '-import-results').html(results.slice(0, 10).join(''));
+				$resultsContainer.html(results.slice(0, 10).join(''));
 				
 				if (results.length > 10) {
-					$('#' + type + '-import-results').append('<div class="notice notice-info"><p><?php esc_html_e( 'Showing first 10 results. Total:', 'url-image-importer' ); ?> ' + results.length + '</p></div>');
+					$resultsContainer.append('<div class="notice notice-info"><p><?php esc_html_e( 'Showing first 10 results. Total:', 'url-image-importer' ); ?> ' + results.length + '</p></div>');
 				}
 			} else {
 				// Clear results if none to display
-				$('#' + type + '-import-results').html('');
+				$resultsContainer.html('');
+			}
+
+			if (mappingData && mappingData.available && mappingData.batchId && mappingData.rows > 0) {
+				var downloadUrl = getMappingDownloadUrl(mappingData.batchId);
+				var exportHtml = '<div class="notice notice-success"><p>' +
+					'<?php esc_html_e( 'URL mapping export is ready:', 'url-image-importer' ); ?> ' +
+					mappingData.rows + ' <?php esc_html_e( 'rows', 'url-image-importer' ); ?>.' +
+					' <a class="button button-secondary" style="margin-left: 10px;" href="' + downloadUrl + '">' +
+					'<?php esc_html_e( 'Download URL Mapping CSV', 'url-image-importer' ); ?>' +
+					'</a></p></div>';
+				$resultsContainer.append(exportHtml);
 			}
 			
 			$('#start-' + type + '-import').prop('disabled', false);
@@ -1492,6 +2066,57 @@ function uimptr_import_images_url_page() {
 }
 
 /**
+ * Get an image extension from a mime type.
+ *
+ * @param string $mime_type Mime type.
+ * @return string
+ */
+function uimptr_get_image_extension_from_mime_type( $mime_type ) {
+	$mime_map = array(
+		'image/jpeg'    => 'jpg',
+		'image/png'     => 'png',
+		'image/gif'     => 'gif',
+		'image/webp'    => 'webp',
+		'image/bmp'     => 'bmp',
+		'image/tiff'    => 'tiff',
+		'image/x-icon'  => 'ico',
+		'image/vnd.microsoft.icon' => 'ico',
+		'image/svg+xml' => 'svg',
+		'image/avif'    => 'avif',
+	);
+
+	$mime_type = strtolower( trim( (string) $mime_type ) );
+	if ( false !== strpos( $mime_type, ';' ) ) {
+		$mime_type = trim( strtok( $mime_type, ';' ) );
+	}
+
+	return $mime_map[ $mime_type ] ?? '';
+}
+
+/**
+ * Extract a filename from a Content-Disposition header.
+ *
+ * @param string $content_disposition Content-Disposition header value.
+ * @return string
+ */
+function uimptr_get_filename_from_content_disposition( $content_disposition ) {
+	$content_disposition = (string) $content_disposition;
+	if ( empty( $content_disposition ) ) {
+		return '';
+	}
+
+	if ( preg_match( '/filename\*=UTF-8\'\'([^;]+)/i', $content_disposition, $matches ) ) {
+		return sanitize_file_name( rawurldecode( trim( $matches[1], "\"' " ) ) );
+	}
+
+	if ( preg_match( '/filename="?([^\";]+)"?/i', $content_disposition, $matches ) ) {
+		return sanitize_file_name( trim( $matches[1], "\"' " ) );
+	}
+
+	return '';
+}
+
+/**
  * Function to import the image from a URL
  *
  * @param url $image_url URL of the image to import.
@@ -1499,7 +2124,7 @@ function uimptr_import_images_url_page() {
 function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata = array(), $preserve_dates = false ) {
 	// Check for stop command if batch_id is provided
 	if ( $batch_id ) {
-		$cancel_flag = get_transient( "uimptr_cancel_{$batch_id}" );
+		$cancel_flag = get_transient( uimptr_get_batch_cancel_transient_key( $batch_id ) );
 		if ( $cancel_flag ) {
 			return new WP_Error( 'import_cancelled', 'Import was cancelled by user' );
 		}
@@ -1526,6 +2151,9 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		return new WP_Error( 'invalid_image', 'No data received from URL.' );
 	}
 
+	$response_content_type = (string) wp_remote_retrieve_header( $response, 'content-type' );
+	$response_content_disposition = (string) wp_remote_retrieve_header( $response, 'content-disposition' );
+
 	// Extract filename from URL
 	$upload_dir = wp_upload_dir();
 	$filename_url_path = is_string( $image_url ) ? parse_url( $image_url, PHP_URL_PATH ) : false;
@@ -1535,6 +2163,14 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		$filename = basename( $filename_url_path );
 	}
 
+	// Prefer a real filename from the HTTP response when the URL path has no extension.
+	if ( empty( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) {
+		$header_filename = uimptr_get_filename_from_content_disposition( $response_content_disposition );
+		if ( ! empty( $header_filename ) ) {
+			$filename = $header_filename;
+		}
+	}
+
 	// Sanitize filename and ensure it has a base name
 	if ( ! $filename ) {
 		$filename = !empty($metadata['title']) ? sanitize_file_name( $metadata['title'] ) : 'imported_image_' . time();
@@ -1542,6 +2178,10 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 	
 	// Sanitize the filename
 	$filename = sanitize_file_name( $filename );
+	$filename_base = pathinfo( $filename, PATHINFO_FILENAME );
+	if ( empty( $filename_base ) ) {
+		$filename_base = !empty($metadata['title']) ? sanitize_file_name( $metadata['title'] ) : 'imported_image_' . time();
+	}
 	
 	// Create a temporary file first for validation
 	$temp_file = wp_tempnam( $filename );
@@ -1553,16 +2193,54 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 	
 	// SECURITY: Validate the actual file content using WordPress's image validation
 	$wp_filetype = wp_check_filetype_and_ext( $temp_file, $filename );
+
+	// Some image services use extensionless URLs. If needed, infer the extension from
+	// the response headers or the downloaded image bytes and validate again.
+	if (
+		( ! $wp_filetype['type'] || ! $wp_filetype['ext'] ) &&
+		empty( pathinfo( $filename, PATHINFO_EXTENSION ) )
+	) {
+		$detected_mime = $response_content_type;
+		$detected_ext  = uimptr_get_image_extension_from_mime_type( $detected_mime );
+
+		if ( empty( $detected_ext ) ) {
+			$image_info = @getimagesize( $temp_file );
+			if ( false !== $image_info && ! empty( $image_info['mime'] ) ) {
+				$detected_mime = $image_info['mime'];
+				$detected_ext  = uimptr_get_image_extension_from_mime_type( $detected_mime );
+			}
+		}
+
+		if ( empty( $detected_ext ) ) {
+			$svg_probe = file_get_contents( $temp_file, false, null, 0, 1024 );
+			if ( false !== $svg_probe && false !== stripos( $svg_probe, '<svg' ) ) {
+				$detected_mime = 'image/svg+xml';
+				$detected_ext  = 'svg';
+			}
+		}
+
+		if ( ! empty( $detected_ext ) ) {
+			$filename    = sanitize_file_name( $filename_base . '.' . $detected_ext );
+			$wp_filetype = wp_check_filetype_and_ext( $temp_file, $filename );
+
+			if ( ( ! $wp_filetype['type'] || ! $wp_filetype['ext'] ) && ! empty( $detected_mime ) ) {
+				$wp_filetype = array(
+					'ext'  => $detected_ext,
+					'type' => $detected_mime,
+				);
+			}
+		}
+	}
 	
 	// Clean up and reject if validation fails
 	if ( ! $wp_filetype['type'] || ! $wp_filetype['ext'] ) {
-		@unlink( $temp_file );
+		uimptr_delete_file_with_logging( $temp_file, 'invalid image validation cleanup' );
 		return new WP_Error( 'invalid_image', 'File failed content validation. Not a valid image file.' );
 	}
 	
 	// SECURITY: Ensure the detected type is an image mime type
 	if ( strpos( $wp_filetype['type'], 'image/' ) !== 0 ) {
-		@unlink( $temp_file );
+		uimptr_delete_file_with_logging( $temp_file, 'non-image mime cleanup' );
 		return new WP_Error( 'invalid_image', 'File must be an image type.' );
 	}
 	
@@ -1573,7 +2251,7 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		// Validate and sanitize SVG content
 		$svg_content = file_get_contents( $temp_file );
 		if ( $svg_content === false || strpos( $svg_content, '<svg' ) === false ) {
-			@unlink( $temp_file );
+			uimptr_delete_file_with_logging( $temp_file, 'invalid SVG cleanup' );
 			return new WP_Error( 'invalid_svg', 'File is not a valid SVG file.' );
 		}
 		
@@ -1582,28 +2260,28 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		
 		// Write sanitized content back to temp file
 		if ( file_put_contents( $temp_file, $svg_content ) === false ) {
-			@unlink( $temp_file );
+			uimptr_delete_file_with_logging( $temp_file, 'SVG sanitization cleanup' );
 			return new WP_Error( 'svg_sanitization_failed', 'Failed to sanitize SVG file.' );
 		}
 		
 		// SECURITY: Validate that SVG mime type is in allowed list
 		$allowed_mime_types = get_allowed_mime_types();
 		if ( ! in_array( 'image/svg+xml', $allowed_mime_types, true ) ) {
-			@unlink( $temp_file );
+			uimptr_delete_file_with_logging( $temp_file, 'disallowed SVG mime cleanup' );
 			return new WP_Error( 'svg_not_allowed', 'SVG files are not allowed on this site.' );
 		}
 	} else {
 		// Verify it's actually an image by checking if we can get image info (raster images only)
 		$image_info = @getimagesize( $temp_file );
 		if ( $image_info === false ) {
-			@unlink( $temp_file );
+			uimptr_delete_file_with_logging( $temp_file, 'invalid raster image cleanup' );
 			return new WP_Error( 'invalid_image', 'File is not a valid image format.' );
 		}
 		
 		// SECURITY: Validate that mime type from content is in allowed list
 		$allowed_mime_types = get_allowed_mime_types();
 		if ( ! in_array( $image_info['mime'], $allowed_mime_types, true ) ) {
-			@unlink( $temp_file );
+			uimptr_delete_file_with_logging( $temp_file, 'disallowed raster mime cleanup' );
 			return new WP_Error( 'invalid_image_mime', 'Image mime type is not allowed.' );
 		}
 	}
@@ -1628,12 +2306,12 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 	if ( ! $moved ) {
 		$moved = @copy( $temp_file, $file_path );
 		if ( $moved ) {
-			@unlink( $temp_file );
+			uimptr_delete_file_with_logging( $temp_file, 'post-copy temp file cleanup' );
 		}
 	}
 	
 	if ( ! $moved ) {
-		@unlink( $temp_file );
+		uimptr_delete_file_with_logging( $temp_file, 'failed file move cleanup' );
 		return new WP_Error( 'file_move_failed', 'Failed to move validated file to uploads directory.' );
 	}
 	
@@ -1678,6 +2356,11 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 
 	if ( ! is_wp_error( $attachment_id ) ) {
 		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		$normalized_source_url = uimptr_normalize_source_url( $image_url );
+		if ( '' !== $normalized_source_url ) {
+			update_post_meta( $attachment_id, '_uimptr_source_url', $normalized_source_url );
+		}
 		
 		// Generate attachment metadata (thumbnails, etc.)
 		$attach_data = wp_generate_attachment_metadata( $attachment_id, $file_path );
@@ -1936,7 +2619,7 @@ add_action( 'wp_ajax_uimptr_bfu_file_scan', 'uimptr_ajax_file_scan' );
  * AJAX handler for single URL import
  */
 function uimptr_ajax_import_single_url() {
-	check_ajax_referer( 'uimptr_ajax', 'nonce' );
+	uimptr_check_ajax_request();
 	
 	if ( ! current_user_can( 'upload_files' ) ) {
 		wp_send_json_error( 'Permission denied' );
@@ -1973,7 +2656,7 @@ add_action( 'wp_ajax_uimptr_import_single_url', 'uimptr_ajax_import_single_url' 
  * AJAX handler for XML processing (extract URLs)
  */
 function uimptr_ajax_process_xml_import() {
-	check_ajax_referer( 'uimptr_ajax', 'nonce' );
+	uimptr_check_ajax_request();
 	
 	if ( ! current_user_can( 'upload_files' ) ) {
 		wp_send_json_error( 'Permission denied' );
@@ -2038,7 +2721,7 @@ function uimptr_ajax_process_xml_import() {
 	if ( is_wp_error( $urls_data ) ) {
 		// Clean up temp file on error
 		if ( file_exists( $temp_file_result['path'] ) ) {
-			unlink( $temp_file_result['path'] );
+			uimptr_delete_file_with_logging( $temp_file_result['path'], 'XML preview temp file cleanup' );
 		}
 		wp_send_json_error( $urls_data->get_error_message() );
 	}
@@ -2056,7 +2739,8 @@ add_action( 'wp_ajax_uimptr_process_xml_import', 'uimptr_ajax_process_xml_import
 
 // Test endpoint to verify AJAX is working
 function uimptr_test_ajax_connection() {
-	// Don't require nonce for testing
+	uimptr_check_ajax_request();
+
 	if ( ! current_user_can( 'upload_files' ) ) {
 		wp_send_json_error( 'Permission denied - user not logged in' );
 	}
@@ -2067,7 +2751,7 @@ add_action( 'wp_ajax_uimptr_test_connection', 'uimptr_test_ajax_connection' );
 
 // CSV Import AJAX endpoint
 function uimptr_ajax_process_csv_import() {
-	check_ajax_referer( 'uimptr_ajax', 'nonce' );
+	uimptr_check_ajax_request();
 	
 	if ( ! current_user_can( 'upload_files' ) ) {
 		wp_send_json_error( 'Permission denied' );
@@ -2125,7 +2809,7 @@ function uimptr_ajax_process_csv_import() {
 	if ( is_wp_error( $urls_data ) ) {
 		// Clean up temp file on error
 		if ( file_exists( $temp_file_result['path'] ) ) {
-			unlink( $temp_file_result['path'] );
+			uimptr_delete_file_with_logging( $temp_file_result['path'], 'CSV preview temp file cleanup' );
 		}
 		wp_send_json_error( $urls_data->get_error_message() );
 	}
@@ -2142,19 +2826,265 @@ function uimptr_ajax_process_csv_import() {
 add_action( 'wp_ajax_uimptr_process_csv_import', 'uimptr_ajax_process_csv_import' );
 
 /**
+ * Get transient key used for cached batch URLs.
+ *
+ * @param string $batch_id Batch ID.
+ * @return string
+ */
+function uimptr_get_batch_urls_transient_key( $batch_id ) {
+	return 'uimptr_urls_' . uimptr_get_state_user_id() . '_' . sanitize_key( (string) $batch_id );
+}
+
+/**
+ * Get transient key used for mapping export metadata.
+ *
+ * @param string $batch_id Batch ID.
+ * @return string
+ */
+function uimptr_get_mapping_transient_key( $batch_id ) {
+	return 'uimptr_mapping_' . uimptr_get_state_user_id() . '_' . sanitize_key( (string) $batch_id );
+}
+
+/**
+ * Get transient key used for batch stats.
+ *
+ * @param string $batch_id Batch ID.
+ * @return string
+ */
+function uimptr_get_batch_stats_transient_key( $batch_id ) {
+	return 'uimptr_stats_' . uimptr_get_state_user_id() . '_' . sanitize_key( (string) $batch_id );
+}
+
+/**
+ * Get transient key used for batch cancel state.
+ *
+ * @param string $batch_id Batch ID.
+ * @return string
+ */
+function uimptr_get_batch_cancel_transient_key( $batch_id ) {
+	return 'uimptr_cancel_' . uimptr_get_state_user_id() . '_' . sanitize_key( (string) $batch_id );
+}
+
+/**
+ * Get transient key used for uploaded temp file metadata.
+ *
+ * @param string $file_id File ID / batch ID.
+ * @return string
+ */
+function uimptr_get_temp_file_transient_key( $file_id ) {
+	return 'uimptr_temp_file_' . uimptr_get_state_user_id() . '_' . sanitize_key( (string) $file_id );
+}
+
+/**
+ * Get transient key used for legacy import progress state.
+ *
+ * @param string $import_id Import ID.
+ * @return string
+ */
+function uimptr_get_legacy_import_progress_transient_key( $import_id ) {
+	return 'uimptr_import_progress_' . uimptr_get_state_user_id() . '_' . sanitize_key( (string) $import_id );
+}
+
+/**
+ * Get transient key used for legacy import URL state.
+ *
+ * @param string $import_id Import ID.
+ * @return string
+ */
+function uimptr_get_legacy_import_urls_transient_key( $import_id ) {
+	return 'uimptr_import_urls_' . uimptr_get_state_user_id() . '_' . sanitize_key( (string) $import_id );
+}
+
+/**
+ * Ensure temp directory exists and is writable.
+ *
+ * @param string $temp_dir Absolute temp directory path.
+ * @return true|WP_Error
+ */
+function uimptr_ensure_temp_directory( $temp_dir ) {
+	if ( empty( $temp_dir ) ) {
+		return new WP_Error( 'temp_dir_missing', 'Temporary directory path is missing.' );
+	}
+
+	if ( ! file_exists( $temp_dir ) ) {
+		if ( ! wp_mkdir_p( $temp_dir ) ) {
+			return new WP_Error( 'temp_dir_create_failed', 'Failed to create temporary directory.' );
+		}
+
+		// Add .htaccess to prevent direct access.
+		@file_put_contents( trailingslashit( $temp_dir ) . '.htaccess', "Order Deny,Allow\nDeny from all\n" );
+		// Add index.php for extra security.
+		@file_put_contents( trailingslashit( $temp_dir ) . 'index.php', '<?php // Silence is golden' );
+	}
+
+	if ( ! is_writable( $temp_dir ) ) {
+		return new WP_Error( 'temp_dir_not_writable', 'Temporary directory is not writable.' );
+	}
+
+	return true;
+}
+
+/**
+ * Initialize mapping export for a batch.
+ *
+ * @param string $batch_id Batch ID.
+ * @return array|WP_Error
+ */
+function uimptr_initialize_mapping_export( $batch_id ) {
+	$transient_key = uimptr_get_mapping_transient_key( $batch_id );
+	$existing      = get_transient( $transient_key );
+
+	if ( is_array( $existing ) && ! empty( $existing['path'] ) && file_exists( $existing['path'] ) ) {
+		return $existing;
+	}
+
+	$temp_dir = uimptr_get_local_temp_dir();
+	$dir_ok   = uimptr_ensure_temp_directory( $temp_dir );
+	if ( is_wp_error( $dir_ok ) ) {
+		return $dir_ok;
+	}
+
+	$filename = 'url_mapping_' . sanitize_file_name( $batch_id ) . '_' . time() . '.csv';
+	$file_path = trailingslashit( $temp_dir ) . $filename;
+
+	$handle = @fopen( $file_path, 'w' );
+	if ( false === $handle ) {
+		return new WP_Error( 'mapping_file_create_failed', 'Failed to create mapping export file.' );
+	}
+
+	$header_written = fputcsv( $handle, array( 'Old URL (external)', 'New URL (local WP)' ) );
+	fclose( $handle );
+
+	if ( false === $header_written ) {
+		uimptr_delete_file_with_logging( $file_path, 'mapping export initialization cleanup' );
+		return new WP_Error( 'mapping_header_write_failed', 'Failed to initialize mapping export header.' );
+	}
+
+	$mapping_info = array(
+		'path'      => $file_path,
+		'row_count' => 0,
+		'created'   => time(),
+		'batch_id'  => $batch_id,
+	);
+
+	set_transient( $transient_key, $mapping_info, DAY_IN_SECONDS );
+
+	return $mapping_info;
+}
+
+/**
+ * Get mapping export metadata.
+ *
+ * @param string $batch_id Batch ID.
+ * @return array|null
+ */
+function uimptr_get_mapping_export_info( $batch_id ) {
+	$mapping_info = get_transient( uimptr_get_mapping_transient_key( $batch_id ) );
+	return is_array( $mapping_info ) ? $mapping_info : null;
+}
+
+/**
+ * Neutralize spreadsheet formula prefixes before writing CSV cells.
+ *
+ * @param string $value CSV cell value.
+ * @return string
+ */
+function uimptr_escape_csv_cell_for_spreadsheet( $value ) {
+	$value = (string) $value;
+
+	// Excel/Sheets can treat leading tabs and formula prefixes as executable.
+	if ( preg_match( '/^(?:\t|[\s]*[=+\-@])/', $value ) ) {
+		return "'" . $value;
+	}
+
+	return $value;
+}
+
+/**
+ * Append a row to mapping export CSV.
+ *
+ * @param string $batch_id Batch ID.
+ * @param string $old_url Original external URL.
+ * @param string $new_url Local WordPress URL.
+ * @return array|WP_Error Updated mapping metadata or WP_Error on failure.
+ */
+function uimptr_append_mapping_export_row( $batch_id, $old_url, $new_url ) {
+	if ( empty( $old_url ) || empty( $new_url ) ) {
+		return uimptr_get_mapping_export_info( $batch_id );
+	}
+
+	$mapping_info = uimptr_get_mapping_export_info( $batch_id );
+	if ( empty( $mapping_info ) || empty( $mapping_info['path'] ) || ! file_exists( $mapping_info['path'] ) ) {
+		$mapping_info = uimptr_initialize_mapping_export( $batch_id );
+		if ( is_wp_error( $mapping_info ) ) {
+			return $mapping_info;
+		}
+	}
+
+	$handle = @fopen( $mapping_info['path'], 'a' );
+	if ( false === $handle ) {
+		return new WP_Error( 'mapping_file_open_failed', 'Failed to open mapping export file for appending.' );
+	}
+
+	$row_written = fputcsv(
+		$handle,
+		array(
+			uimptr_escape_csv_cell_for_spreadsheet( $old_url ),
+			uimptr_escape_csv_cell_for_spreadsheet( $new_url ),
+		)
+	);
+	fclose( $handle );
+
+	if ( false === $row_written ) {
+		return new WP_Error( 'mapping_row_write_failed', 'Failed to write URL mapping row.' );
+	}
+
+	$mapping_info['row_count'] = intval( $mapping_info['row_count'] ?? 0 ) + 1;
+	$mapping_info['created']   = intval( $mapping_info['created'] ?? time() );
+	$mapping_info['batch_id']  = $batch_id;
+
+	set_transient( uimptr_get_mapping_transient_key( $batch_id ), $mapping_info, DAY_IN_SECONDS );
+
+	return $mapping_info;
+}
+
+/**
+ * Delete mapping export metadata and optional file.
+ *
+ * @param string $batch_id Batch ID.
+ * @param bool   $delete_file Whether to delete the CSV file.
+ */
+function uimptr_cleanup_mapping_export( $batch_id, $delete_file = true ) {
+	$mapping_info = uimptr_get_mapping_export_info( $batch_id );
+
+	if ( $delete_file && is_array( $mapping_info ) && ! empty( $mapping_info['path'] ) && file_exists( $mapping_info['path'] ) ) {
+		uimptr_delete_file_with_logging( $mapping_info['path'], 'mapping export cleanup' );
+	}
+
+	delete_transient( uimptr_get_mapping_transient_key( $batch_id ) );
+}
+
+/**
  * AJAX handler for batch import with progress tracking
  */
 function uimptr_ajax_batch_import() {
-	check_ajax_referer( 'uimptr_ajax', 'nonce' );
+	uimptr_check_ajax_request();
 	
 	if ( ! current_user_can( 'upload_files' ) ) {
 		wp_send_json_error( 'Permission denied' );
 	}
 	
-	$batch_id = sanitize_text_field( $_POST['batch_id'] ?? '' );
+	$batch_id    = sanitize_text_field( $_POST['batch_id'] ?? '' );
 	$start_index = intval( $_POST['start_index'] ?? 0 );
-	$batch_size = intval( $_POST['batch_size'] ?? 5 ); // Process 5 URLs at a time
-	$urls = json_decode( stripslashes( $_POST['urls'] ?? '[]' ), true );
+	$batch_size  = intval( $_POST['batch_size'] ?? 5 ); // Process 5 URLs at a time
+	$urls_raw    = isset( $_POST['urls'] ) ? wp_unslash( $_POST['urls'] ) : '';
+	$urls_payload = array();
+	if ( ! empty( $urls_raw ) ) {
+		$decoded_payload = json_decode( $urls_raw, true );
+		if ( is_array( $decoded_payload ) ) {
+			$urls_payload = $decoded_payload;
+		}
+	}
 	$preserve_dates = isset( $_POST['preserve_dates'] ) && ( $_POST['preserve_dates'] === 'true' || $_POST['preserve_dates'] === '1' || $_POST['preserve_dates'] === true );
 	// Handle force_reimport: could be boolean true, string "true", "1", or checkbox value "1"
 	$force_reimport = isset( $_POST['force_reimport'] ) && ( 
@@ -2164,13 +3094,48 @@ function uimptr_ajax_batch_import() {
 		$_POST['force_reimport'] === true 
 	);
 	
-	if ( empty( $batch_id ) || empty( $urls ) ) {
-		wp_send_json_error( 'Invalid batch data' );
+	if ( empty( $batch_id ) ) {
+		wp_send_json_error( 'Invalid batch ID' );
 	}
+
+	$urls_transient_key = uimptr_get_batch_urls_transient_key( $batch_id );
+
+	// Cache all URLs on first request; fetch from transient on subsequent requests.
+	if ( 0 === $start_index ) {
+		if ( empty( $urls_payload ) ) {
+			wp_send_json_error( 'Invalid batch data' );
+		}
+
+		$urls = $urls_payload;
+		$urls_cached = set_transient( $urls_transient_key, $urls, 2 * HOUR_IN_SECONDS );
+		if ( false === $urls_cached && empty( get_transient( $urls_transient_key ) ) ) {
+			wp_send_json_error( 'Failed to initialize batch URL cache.' );
+		}
+
+		$mapping_initialized = uimptr_initialize_mapping_export( $batch_id );
+		if ( is_wp_error( $mapping_initialized ) ) {
+			wp_send_json_error( array(
+				'message' => 'Failed to initialize URL mapping export: ' . $mapping_initialized->get_error_message(),
+			) );
+		}
+	} else {
+		$urls = get_transient( $urls_transient_key );
+
+		// Backward compatibility fallback if URLs are still posted by older clients.
+		if ( empty( $urls ) && ! empty( $urls_payload ) ) {
+			$urls = $urls_payload;
+			set_transient( $urls_transient_key, $urls, 2 * HOUR_IN_SECONDS );
+		}
+
+		if ( ! is_array( $urls ) || empty( $urls ) ) {
+			wp_send_json_error( 'Import session expired. Please restart the import.' );
+		}
+	}
+
 	// Check if import was cancelled
-	$cancel_flag = get_transient( "uimptr_cancel_{$batch_id}" );
+	$cancel_flag = get_transient( uimptr_get_batch_cancel_transient_key( $batch_id ) );
 	if ( $cancel_flag ) {
-		delete_transient( "uimptr_cancel_{$batch_id}" );
+		delete_transient( uimptr_get_batch_cancel_transient_key( $batch_id ) );
 		wp_send_json_error( 'Import cancelled by user' );
 	}
 	
@@ -2180,7 +3145,7 @@ function uimptr_ajax_batch_import() {
 	$errors = array();
 	
 	// Get cumulative counters from transients
-	$batch_stats = get_transient( "uimptr_stats_{$batch_id}" ) ?: array(
+	$batch_stats = get_transient( uimptr_get_batch_stats_transient_key( $batch_id ) ) ?: array(
 		'success' => 0,
 		'failed' => 0,
 		'skipped' => 0
@@ -2194,9 +3159,9 @@ function uimptr_ajax_batch_import() {
 	// Process batch
 	for ( $i = $start_index; $i < $end_index; $i++ ) {
 		// Check for stop command before processing each URL
-		$cancel_flag = get_transient( "uimptr_cancel_{$batch_id}" );
+		$cancel_flag = get_transient( uimptr_get_batch_cancel_transient_key( $batch_id ) );
 		if ( $cancel_flag ) {
-			delete_transient( "uimptr_cancel_{$batch_id}" );
+			delete_transient( uimptr_get_batch_cancel_transient_key( $batch_id ) );
 			wp_send_json_error( array( 
 				'message' => 'Import stopped by user',
 				'processed' => $i,
@@ -2219,18 +3184,23 @@ function uimptr_ajax_batch_import() {
 			continue;
 		}
 		
-		// Check if file already exists (unless force_reimport is enabled)
-		// Extract filename and remove query parameters
-		$url_path = parse_url( $url, PHP_URL_PATH );
-		$filename = $url_path ? basename( $url_path ) : '';
-		
-		// Clean filename - remove query strings that might have been included
-		$filename = preg_replace( '/\?.*$/', '', $filename );
-		
-		if ( !empty( $filename ) && uimptr_attachment_exists( $filename ) && !$force_reimport ) {
-			error_log( "URL Image Importer: Skipping existing file: {$filename} from URL: {$url}" );
-			$batch_skipped++;
-			continue;
+		// Check if file already exists (unless force_reimport is enabled).
+		if ( ! $force_reimport ) {
+			$existing_attachment_id = uimptr_get_existing_attachment_id_for_url( $url );
+			if ( $existing_attachment_id ) {
+				error_log( "URL Image Importer: Skipping existing file from URL: {$url}" );
+				$existing_url = wp_get_attachment_url( $existing_attachment_id );
+				if ( ! empty( $existing_url ) ) {
+					$mapping_result = uimptr_append_mapping_export_row( $batch_id, $url, $existing_url );
+					if ( is_wp_error( $mapping_result ) ) {
+						wp_send_json_error( array(
+							'message' => 'URL mapping export failed while handling skipped file: ' . $mapping_result->get_error_message(),
+						) );
+					}
+				}
+				$batch_skipped++;
+				continue;
+			}
 		}
 		
 		// Import the image with metadata
@@ -2252,6 +3222,16 @@ function uimptr_ajax_batch_import() {
 			'attachment_id' => $attachment_id,
 			'edit_link' => get_edit_post_link( $attachment_id )
 		);
+
+		$new_local_url = wp_get_attachment_url( $attachment_id );
+		if ( ! empty( $new_local_url ) ) {
+			$mapping_result = uimptr_append_mapping_export_row( $batch_id, $url, $new_local_url );
+			if ( is_wp_error( $mapping_result ) ) {
+				wp_send_json_error( array(
+					'message' => 'URL mapping export failed while recording imported file: ' . $mapping_result->get_error_message(),
+				) );
+			}
+		}
 		
 		// Small delay to prevent overwhelming the server and ensure proper ordering
 		usleep( 300000 ); // 0.3 second
@@ -2268,22 +3248,27 @@ function uimptr_ajax_batch_import() {
 	
 	// Save updated stats
 	if ( !$is_complete ) {
-		set_transient( "uimptr_stats_{$batch_id}", $batch_stats, 3600 ); // 1 hour
+		set_transient( uimptr_get_batch_stats_transient_key( $batch_id ), $batch_stats, 3600 ); // 1 hour
 	}
 	
 	// Clean up temporary file if import is complete
 	if ( $is_complete ) {
-		$temp_file_info = get_transient( "uimptr_temp_file_{$batch_id}" );
+		$temp_file_info = get_transient( uimptr_get_temp_file_transient_key( $batch_id ) );
 		if ( $temp_file_info && isset( $temp_file_info['path'] ) ) {
 			if ( file_exists( $temp_file_info['path'] ) ) {
-				unlink( $temp_file_info['path'] );
+				uimptr_delete_file_with_logging( $temp_file_info['path'], 'completed batch temp file cleanup' );
 			}
-			delete_transient( "uimptr_temp_file_{$batch_id}" );
+			delete_transient( uimptr_get_temp_file_transient_key( $batch_id ) );
 		}
 		
 		// Clean up stats transient
-		delete_transient( "uimptr_stats_{$batch_id}" );
+		delete_transient( uimptr_get_batch_stats_transient_key( $batch_id ) );
+		delete_transient( $urls_transient_key );
 	}
+
+	$mapping_info      = uimptr_get_mapping_export_info( $batch_id );
+	$mapping_available = is_array( $mapping_info ) && ! empty( $mapping_info['path'] ) && file_exists( $mapping_info['path'] );
+	$mapping_rows      = $mapping_available ? intval( $mapping_info['row_count'] ?? 0 ) : 0;
 	
 	wp_send_json_success( array(
 		'batch_id' => $batch_id,
@@ -2298,7 +3283,10 @@ function uimptr_ajax_batch_import() {
 			'success' => $batch_stats['success'],
 			'failed' => $batch_stats['failed'],
 			'skipped' => $batch_stats['skipped']
-		)
+		),
+		'mapping_available' => $mapping_available,
+		'mapping_rows' => $mapping_rows,
+		'mapping_batch_id' => $mapping_available ? $batch_id : '',
 	) );
 }
 add_action( 'wp_ajax_uimptr_batch_import', 'uimptr_ajax_batch_import' );
@@ -2307,7 +3295,7 @@ add_action( 'wp_ajax_uimptr_batch_import', 'uimptr_ajax_batch_import' );
  * AJAX handler for cancelling batch import
  */
 function uimptr_ajax_cancel_import() {
-	check_ajax_referer( 'uimptr_ajax', 'nonce' );
+	uimptr_check_ajax_request();
 	
 	$batch_id = sanitize_text_field( $_POST['batch_id'] ?? '' );
 	
@@ -2316,20 +3304,133 @@ function uimptr_ajax_cancel_import() {
 	}
 	
 	// Set cancel flag
-	set_transient( "uimptr_cancel_{$batch_id}", true, 300 ); // 5 minutes
+	set_transient( uimptr_get_batch_cancel_transient_key( $batch_id ), true, 300 ); // 5 minutes
 	
 	// Clean up temporary file if this is an XML import
-	$temp_file_info = get_transient( "uimptr_temp_file_{$batch_id}" );
+	$temp_file_info = get_transient( uimptr_get_temp_file_transient_key( $batch_id ) );
 	if ( $temp_file_info && isset( $temp_file_info['path'] ) ) {
 		if ( file_exists( $temp_file_info['path'] ) ) {
-			unlink( $temp_file_info['path'] );
+			uimptr_delete_file_with_logging( $temp_file_info['path'], 'cancelled batch temp file cleanup' );
 		}
-		delete_transient( "uimptr_temp_file_{$batch_id}" );
+		delete_transient( uimptr_get_temp_file_transient_key( $batch_id ) );
 	}
+
+	// Clean up batch URL cache and mapping export for canceled imports.
+	delete_transient( uimptr_get_batch_urls_transient_key( $batch_id ) );
+	uimptr_cleanup_mapping_export( $batch_id, true );
 	
 	wp_send_json_success( array( 'message' => 'Import cancellation requested' ) );
 }
 add_action( 'wp_ajax_uimptr_cancel_import', 'uimptr_ajax_cancel_import' );
+
+/**
+ * Download URL mapping export as CSV.
+ */
+function uimptr_ajax_download_url_mapping_csv() {
+	uimptr_check_ajax_request();
+
+	if ( ! current_user_can( 'upload_files' ) ) {
+		wp_die( esc_html__( 'Permission denied', 'url-image-importer' ), '', array( 'response' => 403 ) );
+	}
+
+	$batch_id = '';
+	if ( isset( $_REQUEST['batch_id'] ) ) {
+		$batch_id = sanitize_text_field( wp_unslash( $_REQUEST['batch_id'] ) );
+	}
+
+	if ( empty( $batch_id ) ) {
+		wp_die( esc_html__( 'Invalid batch ID.', 'url-image-importer' ), '', array( 'response' => 400 ) );
+	}
+
+	$mapping_info = uimptr_get_mapping_export_info( $batch_id );
+	if ( ! is_array( $mapping_info ) || empty( $mapping_info['path'] ) ) {
+		wp_die( esc_html__( 'Mapping export is not available or has expired.', 'url-image-importer' ), '', array( 'response' => 404 ) );
+	}
+
+	$mapping_path = realpath( $mapping_info['path'] );
+	$temp_dir     = realpath( uimptr_get_local_temp_dir() );
+	$temp_dir_prefix = false !== $temp_dir ? trailingslashit( $temp_dir ) : false;
+	$mapping_dir_prefix = false !== $mapping_path ? trailingslashit( dirname( $mapping_path ) ) : false;
+
+	if (
+		false === $mapping_path ||
+		false === $temp_dir_prefix ||
+		false === $mapping_dir_prefix ||
+		0 !== strpos( $mapping_dir_prefix, $temp_dir_prefix ) ||
+		! file_exists( $mapping_path )
+	) {
+		wp_die( esc_html__( 'Invalid mapping export path.', 'url-image-importer' ), '', array( 'response' => 400 ) );
+	}
+
+	$download_filename = 'url-mapping-' . sanitize_file_name( $batch_id ) . '.csv';
+	@ini_set( 'zlib.output_compression', 'Off' );
+
+	// Clear any output buffers so the CSV download is the only response body.
+	while ( ob_get_level() > 0 ) {
+		ob_end_clean();
+	}
+
+	nocache_headers();
+	status_header( 200 );
+	header_remove( 'Content-Length' );
+	header_remove( 'Content-Encoding' );
+	header( 'Content-Type: text/csv; charset=utf-8' );
+	header( 'Content-Disposition: attachment; filename="' . $download_filename . '"' );
+	header( 'Content-Transfer-Encoding: binary' );
+	header( 'Pragma: public' );
+	header( 'Expires: 0' );
+
+	$handle = fopen( $mapping_path, 'rb' );
+	if ( false === $handle ) {
+		wp_die( esc_html__( 'Failed to open mapping export file.', 'url-image-importer' ), '', array( 'response' => 500 ) );
+	}
+
+	fpassthru( $handle );
+	fclose( $handle );
+	flush();
+	exit;
+}
+add_action( 'wp_ajax_uimptr_download_url_mapping_csv', 'uimptr_ajax_download_url_mapping_csv' );
+
+/**
+ * Safely load XML content without allowing external entities or network access.
+ *
+ * @param string $xml_content Raw XML content.
+ * @return SimpleXMLElement|WP_Error
+ */
+function uimptr_load_xml_string_securely( $xml_content ) {
+	$xml_content = (string) $xml_content;
+
+	// Reject DTD/entity declarations up front so XXE payloads never reach the parser.
+	if ( preg_match( '/<!DOCTYPE|<!ENTITY/i', $xml_content ) ) {
+		return new WP_Error( 'unsafe_xml', 'XML documents with DOCTYPE or ENTITY declarations are not allowed.' );
+	}
+
+	$previous_use_internal_errors = libxml_use_internal_errors( true );
+	$restore_entity_loader        = false;
+	$previous_entity_loader_state = null;
+
+	// libxml_disable_entity_loader() is deprecated in PHP 8+, but still matters on older installs.
+	if ( function_exists( 'libxml_disable_entity_loader' ) && PHP_VERSION_ID < 80000 ) {
+		$previous_entity_loader_state = libxml_disable_entity_loader( true );
+		$restore_entity_loader        = true;
+	}
+
+	$xml = simplexml_load_string( $xml_content, 'SimpleXMLElement', LIBXML_NONET );
+
+	libxml_clear_errors();
+	libxml_use_internal_errors( $previous_use_internal_errors );
+
+	if ( $restore_entity_loader ) {
+		libxml_disable_entity_loader( $previous_entity_loader_state );
+	}
+
+	if ( false === $xml ) {
+		return new WP_Error( 'invalid_xml', 'Failed to parse XML file. Please ensure it\'s a valid WordPress export file.' );
+	}
+
+	return $xml;
+}
 
 /**
  * Extract URLs and metadata from XML content
@@ -2339,12 +3440,10 @@ function uimptr_extract_urls_from_xml_content( $xml_content, $preserve_dates = f
 		return new WP_Error( 'empty_content', 'XML content is empty' );
 	}
 	
-	// Load XML
-	libxml_use_internal_errors( true );
-	$xml = simplexml_load_string( $xml_content );
-	
-	if ( $xml === false ) {
-		return new WP_Error( 'invalid_xml', 'Failed to parse XML file. Please ensure it\'s a valid WordPress export file.' );
+	// Load XML with XXE protections enabled.
+	$xml = uimptr_load_xml_string_securely( $xml_content );
+	if ( is_wp_error( $xml ) ) {
+		return $xml;
 	}
 	
 	// Register namespaces
@@ -2397,15 +3496,10 @@ function uimptr_extract_urls_from_xml_content( $xml_content, $preserve_dates = f
 			continue;
 		}
 		
-		// Skip if already exists (unless force_reimport is enabled)
-		$url_path = parse_url( $attachment_url, PHP_URL_PATH );
-		$filename = $url_path ? basename( $url_path ) : '';
-		
-		// Clean filename - remove query strings that might have been included
-		$filename = preg_replace( '/\?.*$/', '', $filename );
-		
-		if ( !empty( $filename ) && uimptr_attachment_exists( $filename ) && !$force_reimport ) {
-			error_log( "URL Image Importer: Skipping existing XML file: {$filename} from URL: {$attachment_url}" );
+		// Skip if already exists (unless force_reimport is enabled).
+		$existing_attachment_id = uimptr_get_existing_attachment_id_for_url( $attachment_url );
+		if ( $existing_attachment_id && ! $force_reimport ) {
+			error_log( "URL Image Importer: Skipping existing XML file from URL: {$attachment_url}" );
 			continue;
 		}
 		
@@ -2493,19 +3587,36 @@ function uimptr_extract_urls_from_csv_content( $csv_content, $preserve_dates = f
 		fclose( $stream );
 		return new WP_Error( 'invalid_csv', 'Failed to parse CSV file.' );
 	}
+
+	$headers = array_map(
+		function( $header ) {
+			$header = preg_replace( '/^\xEF\xBB\xBF/', '', (string) $header );
+			$header = strtolower( trim( $header ) );
+			$header = preg_replace( '/\s+/', '_', $header );
+			return $header;
+		},
+		$headers
+	);
 	
-	$url_index = array_search( 'url', $headers );
+	$url_index = false;
+	foreach ( array( 'url', 'image_url' ) as $candidate ) {
+		$index = array_search( $candidate, $headers, true );
+		if ( false !== $index ) {
+			$url_index = $index;
+			break;
+		}
+	}
 	
 	if ( $url_index === false ) {
 		fclose( $stream );
-		return new WP_Error( 'missing_url_column', 'CSV file must contain a "url" column.' );
+		return new WP_Error( 'missing_url_column', 'CSV file must contain a "url" or "image url" column.' );
 	}
 	
 	// Find other column indexes
-	$title_index = array_search( 'title', $headers );
-	$description_index = array_search( 'description', $headers );
-	$alt_text_index = array_search( 'alt_text', $headers );
-	$date_index = array_search( 'date', $headers );
+	$title_index = array_search( 'title', $headers, true );
+	$description_index = array_search( 'description', $headers, true );
+	$alt_text_index = array_search( 'alt_text', $headers, true );
+	$date_index = array_search( 'date', $headers, true );
 	
 	$urls_data = array();
 	$images_only = isset( $_POST['images_only'] ) && $_POST['images_only'];
@@ -2529,15 +3640,10 @@ function uimptr_extract_urls_from_csv_content( $csv_content, $preserve_dates = f
 			continue;
 		}
 		
-		// Skip if already exists (unless force_reimport is enabled)
-		$url_path = parse_url( $url, PHP_URL_PATH );
-		$filename = $url_path ? basename( $url_path ) : '';
-		
-		// Clean filename - remove query strings that might have been included
-		$filename = preg_replace( '/\?.*$/', '', $filename );
-		
-		if ( !empty( $filename ) && uimptr_attachment_exists( $filename ) && !$force_reimport ) {
-			error_log( "URL Image Importer: Skipping existing CSV file: {$filename} from URL: {$url}" );
+		// Skip if already exists (unless force_reimport is enabled).
+		$existing_attachment_id = uimptr_get_existing_attachment_id_for_url( $url );
+		if ( $existing_attachment_id && ! $force_reimport ) {
+			error_log( "URL Image Importer: Skipping existing CSV file from URL: {$url}" );
 			continue;
 		}
 		
@@ -2611,45 +3717,150 @@ function uimptr_is_image_url( $url ) {
 }
 
 /**
- * Check if attachment already exists by filename
- * Checks both the _wp_attached_file meta and the guid field
+ * Normalize a source URL before storing or looking it up.
+ *
+ * @param string $url Source URL.
+ * @return string
  */
-function uimptr_attachment_exists( $filename ) {
+function uimptr_normalize_source_url( $url ) {
+	$url = trim( (string) $url );
+
+	if ( '' === $url ) {
+		return '';
+	}
+
+	$normalized = esc_url_raw( $url );
+
+	return '' !== $normalized ? $normalized : $url;
+}
+
+/**
+ * Whether a URL can safely fall back to filename-based dedupe.
+ *
+ * Query strings and fragments often identify distinct remote assets even when
+ * the basename is the same, so only plain URLs should use filename matching.
+ *
+ * @param string $url Source URL.
+ * @return bool
+ */
+function uimptr_url_supports_filename_dedupe( $url ) {
+	$query    = parse_url( $url, PHP_URL_QUERY );
+	$fragment = parse_url( $url, PHP_URL_FRAGMENT );
+
+	return empty( $query ) && empty( $fragment );
+}
+
+/**
+ * Get attachment ID by exact original source URL.
+ *
+ * @param string $image_url Source URL to search for.
+ * @return int Attachment ID or 0 if no match.
+ */
+function uimptr_get_attachment_id_by_source_url( $image_url ) {
+	$normalized_url = uimptr_normalize_source_url( $image_url );
+
+	if ( '' === $normalized_url ) {
+		return 0;
+	}
+
+	global $wpdb;
+
+	$query = $wpdb->prepare(
+		"SELECT pm.post_id FROM {$wpdb->postmeta} pm
+		INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+		WHERE pm.meta_key = '_uimptr_source_url'
+		AND pm.meta_value = %s
+		AND p.post_type = 'attachment'
+		LIMIT 1",
+		$normalized_url
+	);
+
+	return intval( $wpdb->get_var( $query ) );
+}
+
+/**
+ * Find an existing attachment for a source URL.
+ *
+ * Prefer exact source URL matches. Only fall back to filename matching for
+ * plain URLs with no query string or fragment.
+ *
+ * @param string $url Source URL.
+ * @return int Attachment ID or 0 if no match.
+ */
+function uimptr_get_existing_attachment_id_for_url( $url ) {
+	$existing_attachment_id = uimptr_get_attachment_id_by_source_url( $url );
+	if ( $existing_attachment_id ) {
+		return $existing_attachment_id;
+	}
+
+	if ( ! uimptr_url_supports_filename_dedupe( $url ) ) {
+		return 0;
+	}
+
+	$url_path = parse_url( $url, PHP_URL_PATH );
+	$filename = $url_path ? basename( $url_path ) : '';
+	$filename = preg_replace( '/\?.*$/', '', $filename );
+
 	if ( empty( $filename ) ) {
-		return false;
+		return 0;
+	}
+
+	return uimptr_get_attachment_id_by_filename( $filename );
+}
+
+/**
+ * Get attachment ID by filename.
+ * Checks both the _wp_attached_file meta and the guid field.
+ *
+ * @param string $filename Filename to search for.
+ * @return int Attachment ID or 0 if no match.
+ */
+function uimptr_get_attachment_id_by_filename( $filename ) {
+	if ( empty( $filename ) ) {
+		return 0;
 	}
 	
 	global $wpdb;
 	
-	// First, try to find by _wp_attached_file meta (most reliable)
+	// Match the exact basename so "photo.jpg" does not match "my-photo.jpg".
 	$meta_query = $wpdb->prepare(
 		"SELECT post_id FROM {$wpdb->postmeta} pm
 		INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
 		WHERE pm.meta_key = '_wp_attached_file' 
-		AND pm.meta_value LIKE %s
+		AND SUBSTRING_INDEX( pm.meta_value, '/', -1 ) = %s
 		AND p.post_type = 'attachment'
 		LIMIT 1",
-		'%' . $wpdb->esc_like( $filename )
+		$filename
 	);
 	
-	$result = $wpdb->get_var( $meta_query );
+	$result = intval( $wpdb->get_var( $meta_query ) );
 	
 	if ( $result ) {
-		return true;
+		return $result;
 	}
 	
-	// Fallback: check guid field (less reliable but catches some cases)
+	// Fallback: match the exact basename from guid, ignoring any query string.
 	$guid_query = $wpdb->prepare(
 		"SELECT ID FROM {$wpdb->posts} 
 		WHERE post_type = 'attachment' 
-		AND guid LIKE %s
+		AND SUBSTRING_INDEX( SUBSTRING_INDEX( guid, '?', 1 ), '/', -1 ) = %s
 		LIMIT 1",
-		'%/' . $wpdb->esc_like( $filename )
+		$filename
 	);
 	
-	$result = $wpdb->get_var( $guid_query );
+	$result = intval( $wpdb->get_var( $guid_query ) );
 	
-	return !empty( $result );
+	return $result ?: 0;
+}
+
+/**
+ * Check if attachment already exists by filename.
+ *
+ * @param string $filename Filename to search for.
+ * @return bool
+ */
+function uimptr_attachment_exists( $filename ) {
+	return uimptr_get_attachment_id_by_filename( $filename ) > 0;
 }
 
 /**
@@ -2699,7 +3910,7 @@ function uimptr_store_temp_file( $uploaded_file ) {
 	);
 	
 	$file_id = wp_generate_password( 16, false );
-	set_transient( "uimptr_temp_file_{$file_id}", $file_info, 2 * HOUR_IN_SECONDS );
+	set_transient( uimptr_get_temp_file_transient_key( $file_id ), $file_info, 2 * HOUR_IN_SECONDS );
 	
 	return array(
 		'file_id' => $file_id,
@@ -2715,22 +3926,55 @@ function uimptr_cleanup_temp_files() {
 	$temp_dir = uimptr_get_local_temp_dir();
 	
 	if ( ! file_exists( $temp_dir ) ) {
-		return;
-	}
-	
-	$files = glob( $temp_dir . '/xml_import_*.xml' );
-	if ( ! $files ) {
-		return;
+		$temp_dir = '';
 	}
 	
 	$current_time = time();
-	
-	foreach ( $files as $file ) {
-		$file_time = filemtime( $file );
-		
-		// Delete files older than 2 hours
-		if ( $current_time - $file_time > 2 * HOUR_IN_SECONDS ) {
-			unlink( $file );
+
+	if ( ! empty( $temp_dir ) ) {
+		$cleanup_patterns = array(
+			'xml_import_*.xml' => 2 * HOUR_IN_SECONDS,
+			'import_*'         => 2 * HOUR_IN_SECONDS,
+			'url_mapping_*.csv' => DAY_IN_SECONDS,
+		);
+
+		foreach ( $cleanup_patterns as $pattern => $max_age ) {
+			$files = glob( trailingslashit( $temp_dir ) . $pattern );
+			if ( empty( $files ) ) {
+				continue;
+			}
+
+			foreach ( $files as $file ) {
+				$file_time = filemtime( $file );
+				if ( false === $file_time ) {
+					continue;
+				}
+
+				if ( $current_time - $file_time > $max_age ) {
+					uimptr_delete_file_with_logging( $file, 'scheduled temp file cleanup' );
+				}
+			}
+		}
+	}
+
+	// Clean up expired URL cache and mapping export transients.
+	global $wpdb;
+
+	$expired_transient_timeouts = $wpdb->get_col(
+		$wpdb->prepare(
+			"SELECT option_name FROM {$wpdb->options}
+			WHERE ( option_name LIKE %s OR option_name LIKE %s )
+			AND option_value < %d",
+			'_transient_timeout_uimptr_mapping_%',
+			'_transient_timeout_uimptr_urls_%',
+			$current_time
+		)
+	);
+
+	if ( ! empty( $expired_transient_timeouts ) ) {
+		foreach ( $expired_transient_timeouts as $timeout_name ) {
+			$transient_name = str_replace( '_transient_timeout_', '', $timeout_name );
+			delete_transient( $transient_name );
 		}
 	}
 }
@@ -2820,6 +4064,8 @@ function uimptr_get_upload_dir_root() {
  * Update option after dismiss modal.
  */
 function uimptr_ajax_subscribe_dismiss() {
+	uimptr_check_ajax_request();
+
 	update_user_option( get_current_user_id(), 'bfu_subscribe_notice_dismissed', 1 );
 	wp_send_json_success();
 }

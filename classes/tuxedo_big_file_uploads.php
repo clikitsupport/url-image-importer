@@ -117,6 +117,61 @@ class UrlBigFileUploads {
 	}
 
 	/**
+	 * Delete a file while logging failures instead of suppressing them.
+	 *
+	 * @param string $file_path Absolute file path.
+	 * @param string $context   Cleanup context for diagnostics.
+	 * @return bool
+	 */
+	protected function delete_file_with_logging( $file_path, $context = '' ) {
+		if ( function_exists( 'uimptr_delete_file_with_logging' ) ) {
+			return uimptr_delete_file_with_logging( $file_path, $context );
+		}
+
+		$file_path = (string) $file_path;
+		if ( '' === $file_path ) {
+			return false;
+		}
+
+		clearstatcache( true, $file_path );
+		if ( ! file_exists( $file_path ) ) {
+			return true;
+		}
+
+		$unlink_error = '';
+		set_error_handler(
+			function( $severity, $message ) use ( &$unlink_error ) {
+				$unlink_error = (string) $message;
+				return true;
+			}
+		);
+
+		try {
+			$deleted = unlink( $file_path );
+		} finally {
+			restore_error_handler();
+		}
+
+		clearstatcache( true, $file_path );
+		if ( $deleted || ! file_exists( $file_path ) ) {
+			return true;
+		}
+
+		$context = trim( (string) $context );
+		$details = '' !== $unlink_error ? $unlink_error : 'Unknown filesystem error.';
+		error_log(
+			sprintf(
+				'URL Image Importer: Failed to delete file%s: %s. %s',
+				'' !== $context ? ' during ' . $context : '',
+				$file_path,
+				$details
+			)
+		);
+
+		return false;
+	}
+
+	/**
 	 * Filter plupload params.
 	 *
 	 * @since 1.2.0
@@ -446,7 +501,7 @@ class UrlBigFileUploads {
 			if ( is_array( $files ) ) {
 				foreach ( $files as $file ) {
 					if ( @filemtime( $file ) < time() - DAY_IN_SECONDS ) {
-						@unlink( $file );
+						$this->delete_file_with_logging( $file, 'chunk upload temp directory sweep' );
 					}
 				}
 			}
@@ -467,7 +522,7 @@ class UrlBigFileUploads {
 			}
 
 			if ( ! $chunks || $chunk == $chunks - 1 ) {
-				@unlink( $filePath );
+				$this->delete_file_with_logging( $filePath, 'oversized chunk temp file cleanup' );
 
 				if ( ! isset( $_REQUEST['short'] ) || ! isset( $_REQUEST['type'] ) ) {
 					echo wp_json_encode( array(
@@ -523,7 +578,7 @@ class UrlBigFileUploads {
 				/** Failed to open input stream. */
 				/** Attempt to clean up unfinished output. */
 				@fclose( $out );
-				@unlink( $filePath );
+				$this->delete_file_with_logging( $filePath, 'failed chunk input cleanup' );
 				error_log( "BFU: Error reading uploaded part $current_part of $chunks." );
 
 				if ( ! isset( $_REQUEST['short'] ) || ! isset( $_REQUEST['type'] ) ) {
@@ -558,7 +613,7 @@ class UrlBigFileUploads {
 
 			@fclose( $in );
 			@fclose( $out );
-			@unlink( $_FILES['async-upload']['tmp_name'] );
+			$this->delete_file_with_logging( $_FILES['async-upload']['tmp_name'], 'uploaded chunk temp file cleanup' );
 		} else {
 			/** Failed to open output stream. */
 			error_log( "BFU: Failed to open output stream $filePath to write part $current_part of $chunks." );
