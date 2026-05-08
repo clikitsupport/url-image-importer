@@ -3,14 +3,14 @@
  *
  * Plugin Name: URL Image Importer
  * Description: A plugin to import multiple images into the WordPress Media Library from URLs.
- * Version: 1.0.10
+ * Version: 1.1
  * Author: Infinite Uploads
  * Author URI: https://infiniteuploads.com
  * Text Domain: url-image-importer
  * License: GPL2
  *
  * @package UrlImageImporter
- * @version 1.0.10
+ * @version 1.1
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 $upload_dir = wp_upload_dir();
 
 define( 'UIMPTR_PATH', plugin_dir_path( __FILE__ ) );
-define( 'UIMPTR_VERSION', '1.0.10' );
+define( 'UIMPTR_VERSION', '1.1' );
 
 /**
  * Read a boolean value from the current POST request.

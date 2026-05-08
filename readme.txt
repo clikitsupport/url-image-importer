@@ -3,7 +3,7 @@ Contributors: bww
 Tags: import image, image import, import image to media library, media library, csv import, xml import
 Requires at least: 5.3
 Tested up to: 6.7.1
-Stable tag: 1.0.10
+Stable tag: 1.1
 Requires PHP: 7.4
 License: GPLv2 or higher
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -121,7 +121,7 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 
 == Changelog ==
 
-= 1.0.10 - 05/08/2026 =
+= 1.1 - 05/08/2026 =
 - Changed fallback attachment titles to match WordPress uploads by using the filename without its extension when no explicit title metadata is provided.
 - Added an import option to keep the previous full-filename title behavior when needed.
 - Added automatic URL mapping CSV export after batch imports with two columns: Old URL (external) and New URL (local WP).
