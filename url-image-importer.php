@@ -3,14 +3,14 @@
  *
  * Plugin Name: URL Image Importer
  * Description: A plugin to import multiple images into the WordPress Media Library from URLs.
- * Version: 1.0.8
+ * Version: 1.0.10
  * Author: Infinite Uploads
  * Author URI: https://infiniteuploads.com
  * Text Domain: url-image-importer
  * License: GPL2
  *
  * @package UrlImageImporter
- * @version 1.0.8
+ * @version 1.0.10
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -20,7 +20,44 @@ if ( ! defined( 'ABSPATH' ) ) {
 $upload_dir = wp_upload_dir();
 
 define( 'UIMPTR_PATH', plugin_dir_path( __FILE__ ) );
-define( 'UIMPTR_VERSION', '1.0.8' );
+define( 'UIMPTR_VERSION', '1.0.10' );
+
+/**
+ * Read a boolean value from the current POST request.
+ *
+ * @param string $key     Request key.
+ * @param bool   $default Default value when the key is absent or invalid.
+ * @return bool
+ */
+function uimptr_get_post_boolean( $key, $default = false ) {
+	if ( ! isset( $_POST[ $key ] ) ) {
+		return (bool) $default;
+	}
+
+	$value = wp_unslash( $_POST[ $key ] );
+	if ( is_array( $value ) ) {
+		return (bool) $default;
+	}
+
+	if ( is_bool( $value ) ) {
+		return $value;
+	}
+
+	if ( is_numeric( $value ) ) {
+		return (bool) intval( $value );
+	}
+
+	$value = strtolower( trim( (string) $value ) );
+	if ( in_array( $value, array( '1', 'true', 'yes', 'on' ), true ) ) {
+		return true;
+	}
+
+	if ( in_array( $value, array( '0', 'false', 'no', 'off', '' ), true ) ) {
+		return false;
+	}
+
+	return (bool) $default;
+}
 define( 'UPLOADBLOGSDIR', $upload_dir['basedir'] );  // Use basedir for root uploads folder, not path (current month)
 define( 'UIMPTR_AJAX_NONCE_ACTION', 'uimptr_ajax' );
 define( 'UIMPTR_AJAX_NONCE_FIELD', 'nonce' );
@@ -891,11 +928,12 @@ function uimptr_handle_xml_import() {
 		return array( 'errors' => 1, 'messages' => array( 'Failed to process uploaded file.' ) );
 	}
 
-	// Import options
-	$options = array(
-		'images_only' => isset( $_POST['images_only'] ),
-		'force_reimport' => isset( $_POST['force_reimport'] )
-	);
+		// Import options
+		$options = array(
+			'images_only'      => isset( $_POST['images_only'] ),
+			'force_reimport'  => isset( $_POST['force_reimport'] ),
+			'strip_extension' => uimptr_get_post_boolean( 'xml_strip_extension', true ),
+		);
 
 	// Process XML import
 	$xml_importer = new \UrlImageImporter\Importer\WordPressXmlImporter();
@@ -946,11 +984,12 @@ function uimptr_import_images_url_page() {
 	// Handle URL Import
 	if ( isset( $_POST['image_urls'] ) ) {
 		check_admin_referer( 'uimptr-form-field', '_wpnonce_select_form' );
-		$image_urls = array_map( 'trim', explode( "\n", sanitize_textarea_field( wp_unslash( $_POST['image_urls'] ) ) ) );
+		$image_urls      = array_map( 'trim', explode( "\n", sanitize_textarea_field( wp_unslash( $_POST['image_urls'] ) ) ) );
+		$strip_extension = uimptr_get_post_boolean( 'url_strip_extension', true );
 
 		foreach ( $image_urls as $image_url ) {
 			if ( filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
-				$attachment_id = uimptr_import_image_from_url( $image_url );
+				$attachment_id = uimptr_import_image_from_url( $image_url, null, array(), false, $strip_extension );
 
 				if ( is_wp_error( $attachment_id ) ) {
 					$results[] = '<div class="error"><p>' . esc_html( $attachment_id->get_error_message() ) . ' (URL: ' . esc_url( $image_url ) . ')</p></div>';
@@ -1039,10 +1078,16 @@ function uimptr_import_images_url_page() {
 					</div>
 					<div class="row mb-3">
 						<div class="col text-center">
-							<label style="display: inline-flex; align-items: center; font-size: 14px; cursor: pointer;">
-								<input type="checkbox" name="url_preserve_dates" id="url_preserve_dates" style="margin-right: 8px;">
-								<?php esc_html_e( 'Preserve original dates (if available) instead of importing as current date', 'url-image-importer' ); ?>
-							</label>
+								<label style="display: inline-flex; align-items: center; font-size: 14px; cursor: pointer;">
+									<input type="checkbox" name="url_preserve_dates" id="url_preserve_dates" style="margin-right: 8px;">
+									<?php esc_html_e( 'Preserve original dates (if available) instead of importing as current date', 'url-image-importer' ); ?>
+								</label>
+								<br />
+								<input type="hidden" name="url_strip_extension" value="0">
+								<label style="display: inline-flex; align-items: center; font-size: 14px; cursor: pointer;">
+									<input type="checkbox" name="url_strip_extension" id="url_strip_extension" value="1" checked style="margin-right: 8px;">
+									<?php esc_html_e( 'Use filename without extension for attachment titles and slugs', 'url-image-importer' ); ?>
+								</label>
 						</div>
 					</div>
 					<div class="row justify-content-center mb-2">
@@ -1113,10 +1158,15 @@ function uimptr_import_images_url_page() {
 								<input type="checkbox" name="force_reimport" value="1" />
 								<?php esc_html_e( 'Force re-import (import even if files already exist)', 'url-image-importer' ); ?>
 							</label><br />
-							<label>
-								<input type="checkbox" name="xml_preserve_dates" id="xml_preserve_dates" />
-								<?php esc_html_e( 'Preserve original dates instead of importing as current date', 'url-image-importer' ); ?>
-							</label>
+								<label>
+									<input type="checkbox" name="xml_preserve_dates" id="xml_preserve_dates" />
+									<?php esc_html_e( 'Preserve original dates instead of importing as current date', 'url-image-importer' ); ?>
+								</label><br />
+								<input type="hidden" name="xml_strip_extension" value="0">
+								<label>
+									<input type="checkbox" name="xml_strip_extension" id="xml_strip_extension" value="1" checked />
+									<?php esc_html_e( 'Use filename without extension for attachment titles and slugs', 'url-image-importer' ); ?>
+								</label>
 						</div>
 					</div>
 					
@@ -1191,10 +1241,15 @@ function uimptr_import_images_url_page() {
 								<input type="checkbox" name="csv_force_reimport" value="1" />
 								<?php esc_html_e( 'Force re-import (import even if files already exist)', 'url-image-importer' ); ?>
 							</label><br />
-							<label>
-								<input type="checkbox" name="csv_preserve_dates" id="csv_preserve_dates" />
-								<?php esc_html_e( 'Preserve original dates instead of importing as current date', 'url-image-importer' ); ?>
-							</label>
+								<label>
+									<input type="checkbox" name="csv_preserve_dates" id="csv_preserve_dates" />
+									<?php esc_html_e( 'Preserve original dates instead of importing as current date', 'url-image-importer' ); ?>
+								</label><br />
+								<input type="hidden" name="csv_strip_extension" value="0">
+								<label>
+									<input type="checkbox" name="csv_strip_extension" id="csv_strip_extension" value="1" checked />
+									<?php esc_html_e( 'Use filename without extension for attachment titles and slugs', 'url-image-importer' ); ?>
+								</label>
 						</div>
 					</div>
 				</div>
@@ -1509,39 +1564,45 @@ function uimptr_import_images_url_page() {
 			processBatchImport(activeImportBatchId, urlsData, 0, 'url');
 		}
 		
-		function processBatchImport(batchId, urls, startIndex, type) {
-			// Check if we should preserve dates based on the checkbox for this import type
-			var preserveDates = $('#' + type + '_preserve_dates').is(':checked');
-			
-			// Check force reimport setting based on import type
-			var forceReimport = false;
-			if (type === 'xml') {
-				forceReimport = $('#xml-import input[name="force_reimport"]:checked').length > 0;
-			} else if (type === 'csv') {
-				forceReimport = $('#csv-import input[name="csv_force_reimport"]:checked').length > 0;
-			}
-			// URL imports don't have force_reimport option, so it stays false
+			function getImportOptions(type) {
+				var forceReimport = false;
+				if (type === 'xml') {
+					forceReimport = $('#xml-import input[name="force_reimport"]:checked').length > 0;
+				} else if (type === 'csv') {
+					forceReimport = $('#csv-import input[name="csv_force_reimport"]:checked').length > 0;
+				}
 
-			var requestData = {
-				action: 'uimptr_batch_import',
-				nonce: uimptr_ajax.nonce,
-				batch_id: batchId,
-				start_index: startIndex,
-				batch_size: 3, // Smaller batch for stability
-				preserve_dates: preserveDates,
-				force_reimport: forceReimport
-			};
+				return {
+					preserveDates: $('#' + type + '_preserve_dates').is(':checked'),
+					forceReimport: forceReimport,
+					stripExtension: $('#' + type + '_strip_extension').is(':checked')
+				};
+			}
+
+			function processBatchImport(batchId, urls, startIndex, type, importOptions) {
+				importOptions = importOptions || getImportOptions(type);
+
+				var requestData = {
+					action: 'uimptr_batch_import',
+					nonce: uimptr_ajax.nonce,
+					batch_id: batchId,
+					start_index: startIndex,
+					batch_size: 3, // Smaller batch for stability
+					preserve_dates: importOptions.preserveDates,
+					force_reimport: importOptions.forceReimport,
+					strip_extension: importOptions.stripExtension
+				};
 
 			// Send URL payload only on the first request to reduce request size for large imports.
 			if (startIndex === 0 && Array.isArray(urls)) {
 				requestData.urls = JSON.stringify(urls);
 			}
 			
-			$.ajax({
-				url: uimptr_ajax.ajax_url,
-				type: 'POST',
-				data: requestData,
-				success: function(response) {
+				$.ajax({
+					url: uimptr_ajax.ajax_url,
+					type: 'POST',
+					data: requestData,
+					success: function(response) {
 					if (response.success) {
 						var data = response.data;
 						
@@ -1576,12 +1637,12 @@ function uimptr_import_images_url_page() {
 							};
 							
 							finishImport(type, totalImported, totalErrors, results, mappingData);
-						} else {
-							// Continue with next batch
-							setTimeout(function() {
-								processBatchImport(batchId, null, data.next_index, type);
-							}, 200);
-						}
+							} else {
+								// Continue with next batch
+								setTimeout(function() {
+									processBatchImport(batchId, null, data.next_index, type, importOptions);
+								}, 200);
+							}
 					} else {
 						// Handle cancellation or error
 						var errorMsg = response.data;
@@ -2119,9 +2180,13 @@ function uimptr_get_filename_from_content_disposition( $content_disposition ) {
 /**
  * Function to import the image from a URL
  *
- * @param url $image_url URL of the image to import.
+ * @param url   $image_url       URL of the image to import.
+ * @param mixed $batch_id        Batch ID for cancel tracking.
+ * @param array $metadata        Optional attachment metadata.
+ * @param bool  $preserve_dates  Whether to preserve metadata dates.
+ * @param bool  $strip_extension Whether fallback titles should strip the file extension.
  * */
-function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata = array(), $preserve_dates = false ) {
+function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata = array(), $preserve_dates = false, $strip_extension = true ) {
 	// Check for stop command if batch_id is provided
 	if ( $batch_id ) {
 		$cancel_flag = get_transient( uimptr_get_batch_cancel_transient_key( $batch_id ) );
@@ -2326,8 +2391,19 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		return new WP_Error( 'file_not_accessible', 'Saved file is not accessible.' );
 	}
 
-	// Use metadata from XML if available, otherwise fall back to filename
-	$title = !empty($metadata['title']) ? sanitize_text_field($metadata['title']) : sanitize_file_name( $filename );
+	// Use provided metadata when available; otherwise mirror WordPress upload title behavior.
+	if ( !empty($metadata['title']) ) {
+		$title = sanitize_text_field($metadata['title']);
+	} else {
+		$title_source = $filename;
+		if ( $strip_extension ) {
+			$title_source_without_extension = pathinfo( $filename, PATHINFO_FILENAME );
+			if ( '' !== $title_source_without_extension ) {
+				$title_source = $title_source_without_extension;
+			}
+		}
+		$title = sanitize_file_name( $title_source );
+	}
 	$description = !empty($metadata['description']) ? sanitize_textarea_field($metadata['description']) : '';
 	$date = !empty($metadata['date']) ? $metadata['date'] : null;
 
@@ -2635,9 +2711,10 @@ function uimptr_ajax_import_single_url() {
 	
 	// Check if we should preserve dates
 	$preserve_dates = isset( $_POST['preserve_dates'] ) && $_POST['preserve_dates'] === 'true';
+	$strip_extension = uimptr_get_post_boolean( 'strip_extension', true );
 	
 	// Pass metadata to the import function so it handles dates properly during initial creation
-	$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates );
+	$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates, $strip_extension );
 	
 	if ( is_wp_error( $attachment_id ) ) {
 		wp_send_json_error( $attachment_id->get_error_message() );
@@ -3086,6 +3163,7 @@ function uimptr_ajax_batch_import() {
 		}
 	}
 	$preserve_dates = isset( $_POST['preserve_dates'] ) && ( $_POST['preserve_dates'] === 'true' || $_POST['preserve_dates'] === '1' || $_POST['preserve_dates'] === true );
+	$strip_extension = uimptr_get_post_boolean( 'strip_extension', true );
 	// Handle force_reimport: could be boolean true, string "true", "1", or checkbox value "1"
 	$force_reimport = isset( $_POST['force_reimport'] ) && ( 
 		$_POST['force_reimport'] === 'true' || 
@@ -3204,7 +3282,7 @@ function uimptr_ajax_batch_import() {
 		}
 		
 		// Import the image with metadata
-		$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates );
+		$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates, $strip_extension );
 		
 		if ( is_wp_error( $attachment_id ) ) {
 			$errors[] = "Failed to import {$url}: " . $attachment_id->get_error_message();
