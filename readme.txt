@@ -3,7 +3,7 @@ Contributors: bww
 Tags: import image, image import, import image to media library, media library, csv import, xml import
 Requires at least: 5.3
 Tested up to: 6.7.1
-Stable tag: 1.0.8
+Stable tag: 1.0.10
 Requires PHP: 7.4
 License: GPLv2 or higher
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -83,6 +83,10 @@ Yes! You can upload a CSV file with one or multiple image URLs listed in a colum
 
 Yes! You can upload a WordPress XML export file, and the importer will detect all image attachments and import them into your Media Library.
 
+= Can I choose how attachment titles and slugs are generated? =
+
+Yes. The import screen includes a checked option to use filenames without extensions for attachment titles and slugs, matching WordPress uploads. Uncheck it before importing to keep the previous full-filename behavior.
+
 = Can videos (mp4) be uploaded? =
 
 Not at the moment. Support for that is coming soon.
@@ -114,6 +118,10 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 3. Submit the form. If successful, the image(s) will be added to the Media Library, and you’ll get a link to edit them.
 
 == Changelog ==
+
+= 1.0.10 - 05/08/2026 =
+- Changed fallback attachment titles to match WordPress uploads by using the filename without its extension when no explicit title metadata is provided.
+- Added an import option to keep the previous full-filename title behavior when needed.
 
 = 1.0.8 - 12/05/2025 =
 **SECURITY FIX - SVG XSS VULNERABILITY**
@@ -163,4 +171,3 @@ Enjoy!
 == Contact and Credits ==
 
 Maintained by the cloud architects and WordPress engineers at [Infinite Uploads](https://infiniteuploads.com/?utm_source=wordpress.org&utm_medium=readme&utm_campaign=URLII_readme&utm_term=credits).
-

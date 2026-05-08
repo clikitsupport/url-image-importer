@@ -85,11 +85,13 @@ class WordPressXmlImporter {
             }
 
             // Import the image
+            $strip_extension = !array_key_exists('strip_extension', $options) || (bool) $options['strip_extension'];
+
             $import_result = $this->import_image_from_url($attachment_url, [
                 'title' => $title,
                 'description' => $description,
                 'date' => $pub_date
-            ]);
+            ], $strip_extension);
 
             if (is_wp_error($import_result)) {
                 $results['errors']++;
@@ -129,10 +131,10 @@ class WordPressXmlImporter {
     /**
      * Import image from URL with metadata
      */
-    private function import_image_from_url($image_url, $metadata = []) {
+    private function import_image_from_url($image_url, $metadata = [], $strip_extension = true) {
         // Use the existing function from the main plugin
         if (function_exists('uimptr_import_image_from_url')) {
-            $attachment_id = uimptr_import_image_from_url($image_url);
+            $attachment_id = uimptr_import_image_from_url($image_url, null, $metadata, false, $strip_extension);
             
             if (!is_wp_error($attachment_id) && !empty($metadata)) {
                 // Update attachment metadata
