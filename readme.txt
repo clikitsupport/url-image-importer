@@ -121,14 +121,14 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 
 == Changelog ==
 
-= 1.1 - 05/08/2026 =
-- Changed fallback attachment titles to match WordPress uploads by using the filename without its extension when no explicit title metadata is provided.
-- Added an import option to keep the previous full-filename title behavior when needed.
-- Added automatic URL mapping CSV export after batch imports with two columns: Old URL (external) and New URL (local WP).
-- Added secure mapping CSV download endpoint (`uimptr_download_url_mapping_csv`) with nonce and capability checks.
-- Improved large import reliability by caching URL payloads server-side between batch requests.
-- Added mapping cleanup handling for canceled imports and hourly cleanup of stale mapping files/transients.
-- Added UI guidance recommending 500-2,000 URLs per import run on dedicated high-speed servers.
+= 1.1 - 05/15/2026 =
+- Cleaner image titles: imported images now use the filename without the ".jpg" or ".png" extension as the image's title and URL handle in your Media Library, matching what WordPress does for a manual upload. Applies to URL, WordPress XML, and CSV imports.
+- New URL mapping spreadsheet: after a batch import, you can download a CSV that pairs each original web URL with its new location in your Media Library — handy for find-and-replacing old image links across your posts. Only users with media upload permission can download the file.
+- Fixed: the "Download URL Mapping CSV" button could fail in some browsers and show an error page instead of saving the file. The download now works reliably and the saved filename keeps non-English characters intact.
+- Improved compatibility for sites running on Windows servers when verifying the mapping download.
+- Cleanup: partial mapping files are removed when an import is canceled, and older mapping files are tidied up automatically after a day.
+- Removed: a leftover developer test script that was accidentally included in earlier builds. It had no legitimate purpose after install and should not have shipped.
+- Removed: an unused developer setup helper script that did not belong in a release.
 
 = 1.0.8 - 12/05/2025 =
 **SECURITY FIX - SVG XSS VULNERABILITY**
