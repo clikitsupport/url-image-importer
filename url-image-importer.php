@@ -22,42 +22,6 @@ $upload_dir = wp_upload_dir();
 define( 'UIMPTR_PATH', plugin_dir_path( __FILE__ ) );
 define( 'UIMPTR_VERSION', '1.1' );
 
-/**
- * Read a boolean value from the current POST request.
- *
- * @param string $key     Request key.
- * @param bool   $default Default value when the key is absent or invalid.
- * @return bool
- */
-function uimptr_get_post_boolean( $key, $default = false ) {
-	if ( ! isset( $_POST[ $key ] ) ) {
-		return (bool) $default;
-	}
-
-	$value = wp_unslash( $_POST[ $key ] );
-	if ( is_array( $value ) ) {
-		return (bool) $default;
-	}
-
-	if ( is_bool( $value ) ) {
-		return $value;
-	}
-
-	if ( is_numeric( $value ) ) {
-		return (bool) intval( $value );
-	}
-
-	$value = strtolower( trim( (string) $value ) );
-	if ( in_array( $value, array( '1', 'true', 'yes', 'on' ), true ) ) {
-		return true;
-	}
-
-	if ( in_array( $value, array( '0', 'false', 'no', 'off', '' ), true ) ) {
-		return false;
-	}
-
-	return (bool) $default;
-}
 define( 'UPLOADBLOGSDIR', $upload_dir['basedir'] );  // Use basedir for root uploads folder, not path (current month)
 define( 'UIMPTR_AJAX_NONCE_ACTION', 'uimptr_ajax' );
 define( 'UIMPTR_AJAX_NONCE_FIELD', 'nonce' );
@@ -865,10 +829,11 @@ function uimptr_admin_styles() {
 		
 		// Add AJAX data for import functionality
 		$uimptr_ajax_data = array(
-			'ajax_url'    => admin_url( 'admin-ajax.php' ),
-			'nonce'       => uimptr_create_ajax_nonce(),
-			'nonce_field' => uimptr_get_ajax_nonce_field(),
-			'batch_seed'  => uimptr_create_batch_id_seed(),
+			'ajax_url'       => admin_url( 'admin-ajax.php' ),
+			'admin_post_url' => admin_url( 'admin-post.php' ),
+			'nonce'          => uimptr_create_ajax_nonce(),
+			'nonce_field'    => uimptr_get_ajax_nonce_field(),
+			'batch_seed'     => uimptr_create_batch_id_seed(),
 		);
 		wp_localize_script( 'uimptr-js', 'uimptr_ajax', $uimptr_ajax_data );
 		
@@ -932,7 +897,6 @@ function uimptr_handle_xml_import() {
 		$options = array(
 			'images_only'      => isset( $_POST['images_only'] ),
 			'force_reimport'  => isset( $_POST['force_reimport'] ),
-			'strip_extension' => uimptr_get_post_boolean( 'xml_strip_extension', true ),
 		);
 
 	// Process XML import
@@ -984,12 +948,11 @@ function uimptr_import_images_url_page() {
 	// Handle URL Import
 	if ( isset( $_POST['image_urls'] ) ) {
 		check_admin_referer( 'uimptr-form-field', '_wpnonce_select_form' );
-		$image_urls      = array_map( 'trim', explode( "\n", sanitize_textarea_field( wp_unslash( $_POST['image_urls'] ) ) ) );
-		$strip_extension = uimptr_get_post_boolean( 'url_strip_extension', true );
+		$image_urls = array_map( 'trim', explode( "\n", sanitize_textarea_field( wp_unslash( $_POST['image_urls'] ) ) ) );
 
 		foreach ( $image_urls as $image_url ) {
 			if ( filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
-				$attachment_id = uimptr_import_image_from_url( $image_url, null, array(), false, $strip_extension );
+				$attachment_id = uimptr_import_image_from_url( $image_url );
 
 				if ( is_wp_error( $attachment_id ) ) {
 					$results[] = '<div class="error"><p>' . esc_html( $attachment_id->get_error_message() ) . ' (URL: ' . esc_url( $image_url ) . ')</p></div>';
@@ -1082,12 +1045,6 @@ function uimptr_import_images_url_page() {
 									<input type="checkbox" name="url_preserve_dates" id="url_preserve_dates" style="margin-right: 8px;">
 									<?php esc_html_e( 'Preserve original dates (if available) instead of importing as current date', 'url-image-importer' ); ?>
 								</label>
-								<br />
-								<input type="hidden" name="url_strip_extension" value="0">
-								<label style="display: inline-flex; align-items: center; font-size: 14px; cursor: pointer;">
-									<input type="checkbox" name="url_strip_extension" id="url_strip_extension" value="1" checked style="margin-right: 8px;">
-									<?php esc_html_e( 'Use filename without extension for attachment titles and slugs', 'url-image-importer' ); ?>
-								</label>
 						</div>
 					</div>
 					<div class="row justify-content-center mb-2">
@@ -1161,11 +1118,6 @@ function uimptr_import_images_url_page() {
 								<label>
 									<input type="checkbox" name="xml_preserve_dates" id="xml_preserve_dates" />
 									<?php esc_html_e( 'Preserve original dates instead of importing as current date', 'url-image-importer' ); ?>
-								</label><br />
-								<input type="hidden" name="xml_strip_extension" value="0">
-								<label>
-									<input type="checkbox" name="xml_strip_extension" id="xml_strip_extension" value="1" checked />
-									<?php esc_html_e( 'Use filename without extension for attachment titles and slugs', 'url-image-importer' ); ?>
 								</label>
 						</div>
 					</div>
@@ -1244,11 +1196,6 @@ function uimptr_import_images_url_page() {
 								<label>
 									<input type="checkbox" name="csv_preserve_dates" id="csv_preserve_dates" />
 									<?php esc_html_e( 'Preserve original dates instead of importing as current date', 'url-image-importer' ); ?>
-								</label><br />
-								<input type="hidden" name="csv_strip_extension" value="0">
-								<label>
-									<input type="checkbox" name="csv_strip_extension" id="csv_strip_extension" value="1" checked />
-									<?php esc_html_e( 'Use filename without extension for attachment titles and slugs', 'url-image-importer' ); ?>
 								</label>
 						</div>
 					</div>
@@ -1574,8 +1521,7 @@ function uimptr_import_images_url_page() {
 
 				return {
 					preserveDates: $('#' + type + '_preserve_dates').is(':checked'),
-					forceReimport: forceReimport,
-					stripExtension: $('#' + type + '_strip_extension').is(':checked')
+					forceReimport: forceReimport
 				};
 			}
 
@@ -1589,8 +1535,7 @@ function uimptr_import_images_url_page() {
 					start_index: startIndex,
 					batch_size: 3, // Smaller batch for stability
 					preserve_dates: importOptions.preserveDates,
-					force_reimport: importOptions.forceReimport,
-					strip_extension: importOptions.stripExtension
+					force_reimport: importOptions.forceReimport
 				};
 
 			// Send URL payload only on the first request to reduce request size for large imports.
@@ -1790,7 +1735,8 @@ function uimptr_import_images_url_page() {
 		}
 
 		function getMappingDownloadUrl(batchId) {
-			return uimptr_ajax.ajax_url + '?action=uimptr_download_url_mapping_csv&nonce=' + encodeURIComponent(uimptr_ajax.nonce) + '&batch_id=' + encodeURIComponent(batchId);
+			var downloadBaseUrl = uimptr_ajax.admin_post_url || uimptr_ajax.ajax_url;
+			return downloadBaseUrl + '?action=uimptr_download_url_mapping_csv&nonce=' + encodeURIComponent(uimptr_ajax.nonce) + '&batch_id=' + encodeURIComponent(batchId);
 		}
 		
 		// Preview Functions
@@ -2155,6 +2101,76 @@ function uimptr_get_image_extension_from_mime_type( $mime_type ) {
 }
 
 /**
+ * Remove a trailing image file extension from a title.
+ *
+ * @param string $title Attachment title source.
+ * @param bool   $_deprecated_strip_extension Deprecated. Image extensions are always stripped.
+ * @return string
+ */
+function uimptr_maybe_strip_image_extension_from_title( $title, $_deprecated_strip_extension = true ) {
+	$title = trim( (string) $title );
+
+	if ( '' === $title ) {
+		return $title;
+	}
+
+	if ( ! preg_match( '/\.([A-Za-z0-9]{2,5})$/', $title, $matches ) ) {
+		return $title;
+	}
+
+	$image_extensions = array( 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'tif', 'ico', 'avif', 'heic', 'heif' );
+	$extension        = strtolower( $matches[1] );
+
+	if ( ! in_array( $extension, $image_extensions, true ) ) {
+		return $title;
+	}
+
+	$title_without_extension = trim( substr( $title, 0, -1 * ( strlen( $matches[1] ) + 1 ) ) );
+
+	return '' !== $title_without_extension ? $title_without_extension : $title;
+}
+
+/**
+ * Sanitize an attachment slug from the normalized title.
+ *
+ * @param string $title Attachment title source.
+ * @return string
+ */
+function uimptr_sanitize_attachment_slug_from_title( $title ) {
+	$title = trim( (string) $title );
+
+	if ( '' === $title ) {
+		return '';
+	}
+
+	return sanitize_title( preg_replace( '/\.+/', '-', $title ) );
+}
+
+/**
+ * Persist the computed attachment title and slug after attachment creation.
+ *
+ * @param int    $attachment_id Attachment ID.
+ * @param string $title         Computed title.
+ * @return void
+ */
+function uimptr_update_attachment_title_and_slug( $attachment_id, $title ) {
+	$attachment_id = intval( $attachment_id );
+	$title         = sanitize_text_field( $title );
+
+	if ( $attachment_id <= 0 || '' === $title ) {
+		return;
+	}
+
+	wp_update_post(
+		array(
+			'ID'         => $attachment_id,
+			'post_title' => $title,
+			'post_name'  => uimptr_sanitize_attachment_slug_from_title( $title ),
+		)
+	);
+}
+
+/**
  * Extract a filename from a Content-Disposition header.
  *
  * @param string $content_disposition Content-Disposition header value.
@@ -2184,9 +2200,9 @@ function uimptr_get_filename_from_content_disposition( $content_disposition ) {
  * @param mixed $batch_id        Batch ID for cancel tracking.
  * @param array $metadata        Optional attachment metadata.
  * @param bool  $preserve_dates  Whether to preserve metadata dates.
- * @param bool  $strip_extension Whether fallback titles should strip the file extension.
+ * @param bool  $_deprecated_strip_extension Deprecated. Attachment titles always strip image extensions.
  * */
-function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata = array(), $preserve_dates = false, $strip_extension = true ) {
+function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata = array(), $preserve_dates = false, $_deprecated_strip_extension = true ) {
 	// Check for stop command if batch_id is provided
 	if ( $batch_id ) {
 		$cancel_flag = get_transient( uimptr_get_batch_cancel_transient_key( $batch_id ) );
@@ -2393,14 +2409,12 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 
 	// Use provided metadata when available; otherwise mirror WordPress upload title behavior.
 	if ( !empty($metadata['title']) ) {
-		$title = sanitize_text_field($metadata['title']);
+		$title = sanitize_text_field( uimptr_maybe_strip_image_extension_from_title( $metadata['title'] ) );
 	} else {
 		$title_source = $filename;
-		if ( $strip_extension ) {
-			$title_source_without_extension = pathinfo( $filename, PATHINFO_FILENAME );
-			if ( '' !== $title_source_without_extension ) {
-				$title_source = $title_source_without_extension;
-			}
+		$title_source_without_extension = pathinfo( $filename, PATHINFO_FILENAME );
+		if ( '' !== $title_source_without_extension ) {
+			$title_source = $title_source_without_extension;
 		}
 		$title = sanitize_file_name( $title_source );
 	}
@@ -2410,6 +2424,7 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 	$attachment = array(
 		'post_mime_type' => $file_type['type'],
 		'post_title'     => $title,
+		'post_name'      => uimptr_sanitize_attachment_slug_from_title( $title ),
 		'post_content'   => $description,
 		'post_excerpt'   => $description, // This becomes the caption
 		'post_status'    => 'inherit',
@@ -2431,6 +2446,8 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 	$attachment_id = wp_insert_attachment( $attachment, $file_path );
 
 	if ( ! is_wp_error( $attachment_id ) ) {
+		uimptr_update_attachment_title_and_slug( $attachment_id, $title );
+
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
 		$normalized_source_url = uimptr_normalize_source_url( $image_url );
@@ -2449,13 +2466,14 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		}
 		
 		wp_update_attachment_metadata( $attachment_id, $attach_data );
+		uimptr_update_attachment_title_and_slug( $attachment_id, $title );
 		
 		// Set alt text from alt_text field, or fall back to title if available
 		$alt_text = '';
 		if ( !empty($metadata['alt_text']) ) {
 			$alt_text = sanitize_text_field($metadata['alt_text']);
 		} elseif ( !empty($metadata['title']) ) {
-			$alt_text = sanitize_text_field($metadata['title']);
+			$alt_text = $title;
 		}
 		
 		if ( !empty($alt_text) ) {
@@ -2711,10 +2729,9 @@ function uimptr_ajax_import_single_url() {
 	
 	// Check if we should preserve dates
 	$preserve_dates = isset( $_POST['preserve_dates'] ) && $_POST['preserve_dates'] === 'true';
-	$strip_extension = uimptr_get_post_boolean( 'strip_extension', true );
 	
 	// Pass metadata to the import function so it handles dates properly during initial creation
-	$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates, $strip_extension );
+	$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates );
 	
 	if ( is_wp_error( $attachment_id ) ) {
 		wp_send_json_error( $attachment_id->get_error_message() );
@@ -3163,7 +3180,6 @@ function uimptr_ajax_batch_import() {
 		}
 	}
 	$preserve_dates = isset( $_POST['preserve_dates'] ) && ( $_POST['preserve_dates'] === 'true' || $_POST['preserve_dates'] === '1' || $_POST['preserve_dates'] === true );
-	$strip_extension = uimptr_get_post_boolean( 'strip_extension', true );
 	// Handle force_reimport: could be boolean true, string "true", "1", or checkbox value "1"
 	$force_reimport = isset( $_POST['force_reimport'] ) && ( 
 		$_POST['force_reimport'] === 'true' || 
@@ -3282,7 +3298,7 @@ function uimptr_ajax_batch_import() {
 		}
 		
 		// Import the image with metadata
-		$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates, $strip_extension );
+		$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates );
 		
 		if ( is_wp_error( $attachment_id ) ) {
 			$errors[] = "Failed to import {$url}: " . $attachment_id->get_error_message();
@@ -3402,73 +3418,216 @@ function uimptr_ajax_cancel_import() {
 add_action( 'wp_ajax_uimptr_cancel_import', 'uimptr_ajax_cancel_import' );
 
 /**
- * Download URL mapping export as CSV.
+ * Get the URL for downloading a mapping export.
+ *
+ * @param string $batch_id Batch ID.
+ * @param string $nonce    Optional nonce to reuse.
+ * @return string
  */
-function uimptr_ajax_download_url_mapping_csv() {
-	uimptr_check_ajax_request();
+function uimptr_get_mapping_download_url( $batch_id, $nonce = '' ) {
+	$nonce = '' !== $nonce ? $nonce : uimptr_create_ajax_nonce();
 
-	if ( ! current_user_can( 'upload_files' ) ) {
-		wp_die( esc_html__( 'Permission denied', 'url-image-importer' ), '', array( 'response' => 403 ) );
-	}
+	return add_query_arg(
+		array(
+			'action'                      => 'uimptr_download_url_mapping_csv',
+			uimptr_get_ajax_nonce_field() => $nonce,
+			'batch_id'                    => sanitize_text_field( $batch_id ),
+		),
+		admin_url( 'admin-post.php' )
+	);
+}
 
+/**
+ * Get the requested mapping download batch ID.
+ *
+ * @return string
+ */
+function uimptr_get_mapping_download_batch_id() {
 	$batch_id = '';
 	if ( isset( $_REQUEST['batch_id'] ) ) {
 		$batch_id = sanitize_text_field( wp_unslash( $_REQUEST['batch_id'] ) );
 	}
 
+	return $batch_id;
+}
+
+/**
+ * Validate access to a mapping download request.
+ *
+ * @return true|WP_Error
+ */
+function uimptr_validate_mapping_download_request() {
+	if ( ! uimptr_verify_ajax_request_nonce() ) {
+		return new WP_Error(
+			'invalid_mapping_download_nonce',
+			__( 'The mapping download link has expired. Please run the import again.', 'url-image-importer' ),
+			array( 'status' => 403 )
+		);
+	}
+
+	if ( ! current_user_can( 'upload_files' ) ) {
+		return new WP_Error(
+			'mapping_download_permission_denied',
+			__( 'Permission denied.', 'url-image-importer' ),
+			array( 'status' => 403 )
+		);
+	}
+
+	return true;
+}
+
+/**
+ * Return a WP_Error response for mapping downloads.
+ *
+ * @param WP_Error $error Error to display.
+ * @return void
+ */
+function uimptr_die_with_mapping_download_error( WP_Error $error ) {
+	$error_data = $error->get_error_data();
+	$status     = is_array( $error_data ) && isset( $error_data['status'] ) ? intval( $error_data['status'] ) : 500;
+
+	wp_die( esc_html( $error->get_error_message() ), '', array( 'response' => $status ) );
+}
+
+/**
+ * Clear removable output buffers before streaming a download.
+ *
+ * @return void
+ */
+function uimptr_clean_download_output_buffers() {
+	while ( ob_get_level() > 0 ) {
+		$status = ob_get_status();
+		$flags  = isset( $status['flags'] ) ? intval( $status['flags'] ) : 0;
+
+		if ( $flags && defined( 'PHP_OUTPUT_HANDLER_REMOVABLE' ) && ! ( $flags & PHP_OUTPUT_HANDLER_REMOVABLE ) ) {
+			if ( defined( 'PHP_OUTPUT_HANDLER_CLEANABLE' ) && ( $flags & PHP_OUTPUT_HANDLER_CLEANABLE ) ) {
+				@ob_clean();
+			}
+			break;
+		}
+
+		if ( ! @ob_end_clean() ) {
+			break;
+		}
+	}
+}
+
+/**
+ * Stream a URL mapping export as CSV.
+ *
+ * @param string $batch_id Batch ID.
+ * @return void|WP_Error
+ */
+function uimptr_stream_mapping_csv_download( $batch_id ) {
 	if ( empty( $batch_id ) ) {
-		wp_die( esc_html__( 'Invalid batch ID.', 'url-image-importer' ), '', array( 'response' => 400 ) );
+		return new WP_Error(
+			'invalid_mapping_download_batch',
+			__( 'Invalid batch ID.', 'url-image-importer' ),
+			array( 'status' => 400 )
+		);
 	}
 
 	$mapping_info = uimptr_get_mapping_export_info( $batch_id );
 	if ( ! is_array( $mapping_info ) || empty( $mapping_info['path'] ) ) {
-		wp_die( esc_html__( 'Mapping export is not available or has expired.', 'url-image-importer' ), '', array( 'response' => 404 ) );
+		return new WP_Error(
+			'mapping_export_expired',
+			__( 'Mapping export is not available or has expired.', 'url-image-importer' ),
+			array( 'status' => 404 )
+		);
 	}
 
 	$mapping_path = realpath( $mapping_info['path'] );
 	$temp_dir     = realpath( uimptr_get_local_temp_dir() );
-	$temp_dir_prefix = false !== $temp_dir ? trailingslashit( $temp_dir ) : false;
-	$mapping_dir_prefix = false !== $mapping_path ? trailingslashit( dirname( $mapping_path ) ) : false;
+	$temp_dir_prefix = false !== $temp_dir ? trailingslashit( wp_normalize_path( $temp_dir ) ) : false;
+	$mapping_path_normalized = false !== $mapping_path ? wp_normalize_path( $mapping_path ) : false;
 
 	if (
 		false === $mapping_path ||
 		false === $temp_dir_prefix ||
-		false === $mapping_dir_prefix ||
-		0 !== strpos( $mapping_dir_prefix, $temp_dir_prefix ) ||
-		! file_exists( $mapping_path )
+		false === $mapping_path_normalized ||
+		0 !== strpos( $mapping_path_normalized, $temp_dir_prefix ) ||
+		! is_file( $mapping_path ) ||
+		! is_readable( $mapping_path )
 	) {
-		wp_die( esc_html__( 'Invalid mapping export path.', 'url-image-importer' ), '', array( 'response' => 400 ) );
+		return new WP_Error(
+			'invalid_mapping_export_path',
+			__( 'Invalid mapping export path.', 'url-image-importer' ),
+			array( 'status' => 400 )
+		);
+	}
+
+	$handle = fopen( $mapping_path, 'rb' );
+	if ( false === $handle ) {
+		return new WP_Error(
+			'mapping_export_open_failed',
+			__( 'Failed to open mapping export file.', 'url-image-importer' ),
+			array( 'status' => 500 )
+		);
 	}
 
 	$download_filename = 'url-mapping-' . sanitize_file_name( $batch_id ) . '.csv';
+	$file_size         = filesize( $mapping_path );
+
+	if ( function_exists( 'apache_setenv' ) ) {
+		@apache_setenv( 'no-gzip', '1' );
+	}
 	@ini_set( 'zlib.output_compression', 'Off' );
 
-	// Clear any output buffers so the CSV download is the only response body.
-	while ( ob_get_level() > 0 ) {
-		ob_end_clean();
-	}
+	uimptr_clean_download_output_buffers();
 
 	nocache_headers();
 	status_header( 200 );
 	header_remove( 'Content-Length' );
 	header_remove( 'Content-Encoding' );
 	header( 'Content-Type: text/csv; charset=utf-8' );
-	header( 'Content-Disposition: attachment; filename="' . $download_filename . '"' );
+	header( 'Content-Disposition: attachment; filename="' . $download_filename . '"; filename*=UTF-8\'\'' . rawurlencode( $download_filename ) );
 	header( 'Content-Transfer-Encoding: binary' );
+	header( 'X-Content-Type-Options: nosniff' );
 	header( 'Pragma: public' );
 	header( 'Expires: 0' );
 
-	$handle = fopen( $mapping_path, 'rb' );
-	if ( false === $handle ) {
-		wp_die( esc_html__( 'Failed to open mapping export file.', 'url-image-importer' ), '', array( 'response' => 500 ) );
+	if ( false !== $file_size ) {
+		header( 'Content-Length: ' . $file_size );
 	}
 
-	fpassthru( $handle );
+	while ( ! feof( $handle ) ) {
+		echo fread( $handle, 8192 );
+	}
 	fclose( $handle );
 	flush();
 	exit;
 }
+
+/**
+ * Redirect legacy admin-ajax download URLs to the normal admin-post download route.
+ */
+function uimptr_ajax_download_url_mapping_csv() {
+	$access = uimptr_validate_mapping_download_request();
+	if ( is_wp_error( $access ) ) {
+		uimptr_die_with_mapping_download_error( $access );
+	}
+
+	$batch_id = uimptr_get_mapping_download_batch_id();
+	wp_safe_redirect( uimptr_get_mapping_download_url( $batch_id, uimptr_get_ajax_request_nonce() ) );
+	exit;
+}
 add_action( 'wp_ajax_uimptr_download_url_mapping_csv', 'uimptr_ajax_download_url_mapping_csv' );
+
+/**
+ * Download URL mapping export as CSV.
+ */
+function uimptr_admin_post_download_url_mapping_csv() {
+	$access = uimptr_validate_mapping_download_request();
+	if ( is_wp_error( $access ) ) {
+		uimptr_die_with_mapping_download_error( $access );
+	}
+
+	$result = uimptr_stream_mapping_csv_download( uimptr_get_mapping_download_batch_id() );
+	if ( is_wp_error( $result ) ) {
+		uimptr_die_with_mapping_download_error( $result );
+	}
+}
+add_action( 'admin_post_uimptr_download_url_mapping_csv', 'uimptr_admin_post_download_url_mapping_csv' );
 
 /**
  * Safely load XML content without allowing external entities or network access.
