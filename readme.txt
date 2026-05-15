@@ -3,7 +3,7 @@ Contributors: bww
 Tags: import image, image import, import image to media library, media library, csv import, xml import
 Requires at least: 5.3
 Tested up to: 6.7.1
-Stable tag: 1.0.8
+Stable tag: 1.1
 Requires PHP: 7.4
 License: GPLv2 or higher
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -21,6 +21,7 @@ The plugin fetches images directly from external links, validates them, and adds
 - Import any image directly into your WordPress Media Library from a URL—no file uploads required.
 - Import multiple images at once using a **CSV spreadsheet** with image URLs in bulk.
 - Import from **WordPress XML export files** to restore or migrate images between sites.
+- Export a spreadsheet-ready **URL mapping CSV** (Old URL → New URL) after batch imports for database replacement workflows.
 - Works seamlessly with any hosting environment or server setup.
 - Automatically validate and save images, ensuring they’re ready to use in your content.
 - Get smart recommendations based on available space in your temporary uploads directory.
@@ -35,6 +36,7 @@ Paste in a publicly accessible URL with a compatible file extension or upload a 
 ### Bulk Import Support
 
 Allows you to paste multiple URLs, upload a CSV file, or use a WordPress XML export to import several images simultaneously without timing out. It processes one at a time, recursively importing them.
+For dedicated high-speed servers, running imports in chunks of 500-2,000 URLs per run provides a strong balance of speed and reliability.
 
 ### CSV Imports
 
@@ -83,6 +85,10 @@ Yes! You can upload a CSV file with one or multiple image URLs listed in a colum
 
 Yes! You can upload a WordPress XML export file, and the importer will detect all image attachments and import them into your Media Library.
 
+= Can I choose how attachment titles and slugs are generated? =
+
+Yes. The import screen includes a checked option to use filenames without extensions for attachment titles and slugs, matching WordPress uploads. Uncheck it before importing to keep the previous full-filename behavior.
+
 = Can videos (mp4) be uploaded? =
 
 Not at the moment. Support for that is coming soon.
@@ -114,6 +120,15 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 3. Submit the form. If successful, the image(s) will be added to the Media Library, and you’ll get a link to edit them.
 
 == Changelog ==
+
+= 1.1 - 05/08/2026 =
+- Changed fallback attachment titles to match WordPress uploads by using the filename without its extension when no explicit title metadata is provided.
+- Added an import option to keep the previous full-filename title behavior when needed.
+- Added automatic URL mapping CSV export after batch imports with two columns: Old URL (external) and New URL (local WP).
+- Added secure mapping CSV download endpoint (`uimptr_download_url_mapping_csv`) with nonce and capability checks.
+- Improved large import reliability by caching URL payloads server-side between batch requests.
+- Added mapping cleanup handling for canceled imports and hourly cleanup of stale mapping files/transients.
+- Added UI guidance recommending 500-2,000 URLs per import run on dedicated high-speed servers.
 
 = 1.0.8 - 12/05/2025 =
 **SECURITY FIX - SVG XSS VULNERABILITY**
@@ -163,4 +178,3 @@ Enjoy!
 == Contact and Credits ==
 
 Maintained by the cloud architects and WordPress engineers at [Infinite Uploads](https://infiniteuploads.com/?utm_source=wordpress.org&utm_medium=readme&utm_campaign=URLII_readme&utm_term=credits).
-

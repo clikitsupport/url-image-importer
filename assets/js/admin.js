@@ -88,7 +88,10 @@ jQuery(document).ready(function ($) {
   });
 
   $('#bfu-view-results').on('click', function () {
-    $.get(ajaxurl + '?action=uimptr_subscribe_dismiss', function( data ) {
+    $.post(ajaxurl, {
+      action: 'uimptr_subscribe_dismiss',
+      nonce: uimptr_ajax.nonce
+    }, function( data ) {
       location.reload();
     });
   });
@@ -99,7 +102,10 @@ jQuery(document).ready(function ($) {
       mc1Submitted = true;
     } else if ( "reset" === event.type && mc1Submitted ) {;
       $('#bfu-subscribe-button').prop('disabled', true);
-      $.get(ajaxurl + '?action=uimptr_subscribe_dismiss', function( data ) {
+      $.post(ajaxurl, {
+        action: 'uimptr_subscribe_dismiss',
+        nonce: uimptr_ajax.nonce
+      }, function( data ) {
         location.reload();
       });
     }

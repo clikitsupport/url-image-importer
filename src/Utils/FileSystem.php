@@ -15,6 +15,61 @@ namespace UrlImageImporter\Utils;
 class FileSystem {
 
 	/**
+	 * Delete a temp file while logging failures instead of suppressing them.
+	 *
+	 * @param string $file_path Absolute file path.
+	 * @param string $context   Cleanup context for diagnostics.
+	 * @return bool
+	 */
+	private static function delete_file_with_logging( $file_path, $context = '' ) {
+		if ( \function_exists( '\uimptr_delete_file_with_logging' ) ) {
+			return \uimptr_delete_file_with_logging( $file_path, $context );
+		}
+
+		$file_path = (string) $file_path;
+		if ( '' === $file_path ) {
+			return false;
+		}
+
+		\clearstatcache( true, $file_path );
+		if ( ! \file_exists( $file_path ) ) {
+			return true;
+		}
+
+		$unlink_error = '';
+		\set_error_handler(
+			function( $severity, $message ) use ( &$unlink_error ) {
+				$unlink_error = (string) $message;
+				return true;
+			}
+		);
+
+		try {
+			$deleted = \unlink( $file_path );
+		} finally {
+			\restore_error_handler();
+		}
+
+		\clearstatcache( true, $file_path );
+		if ( $deleted || ! \file_exists( $file_path ) ) {
+			return true;
+		}
+
+		$context = trim( (string) $context );
+		$details = '' !== $unlink_error ? $unlink_error : 'Unknown filesystem error.';
+		\error_log(
+			sprintf(
+				'URL Image Importer: Failed to delete file%s: %s. %s',
+				'' !== $context ? ' during ' . $context : '',
+				$file_path,
+				$details
+			)
+		);
+
+		return false;
+	}
+
+	/**
 	 * Get the local temp directory path (bypasses cloud storage)
 	 *
 	 * @return string
@@ -76,7 +131,10 @@ class FileSystem {
 		);
 		
 		$file_id = \wp_generate_password( 16, false );
-		\set_transient( "uimptr_temp_file_{$file_id}", $file_info, 2 * HOUR_IN_SECONDS );
+		$transient_key = \function_exists( '\uimptr_get_temp_file_transient_key' )
+			? \uimptr_get_temp_file_transient_key( $file_id )
+			: 'uimptr_temp_file_' . (int) \get_current_user_id() . '_' . sanitize_key( (string) $file_id );
+		\set_transient( $transient_key, $file_info, 2 * HOUR_IN_SECONDS );
 		
 		return array(
 			'file_id' => $file_id,
@@ -108,7 +166,7 @@ class FileSystem {
 		
 		foreach ( $files as $file ) {
 			if ( file_exists( $file ) && filemtime( $file ) < $cutoff_time ) {
-				@unlink( $file );
+				self::delete_file_with_logging( $file, 'utility temp file cleanup' );
 			}
 		}
 	}
