@@ -84,7 +84,6 @@ class WordPressXmlImporter {
                 return;
             }
 
-            // Import the image
             $import_result = $this->import_image_from_url($attachment_url, [
                 'title' => $title,
                 'description' => $description,
@@ -132,15 +131,26 @@ class WordPressXmlImporter {
     private function import_image_from_url($image_url, $metadata = []) {
         // Use the existing function from the main plugin
         if (function_exists('uimptr_import_image_from_url')) {
-            $attachment_id = uimptr_import_image_from_url($image_url);
+            $attachment_id = uimptr_import_image_from_url($image_url, null, $metadata);
             
             if (!is_wp_error($attachment_id) && !empty($metadata)) {
                 // Update attachment metadata
                 if (!empty($metadata['title'])) {
-                    wp_update_post([
-                        'ID' => $attachment_id,
-                        'post_title' => sanitize_text_field($metadata['title'])
-                    ]);
+                    $title = \function_exists('uimptr_maybe_strip_image_extension_from_title')
+                        ? \uimptr_maybe_strip_image_extension_from_title($metadata['title'])
+                        : $metadata['title'];
+
+                    if (\function_exists('uimptr_update_attachment_title_and_slug')) {
+                        \uimptr_update_attachment_title_and_slug($attachment_id, $title);
+                    } else {
+                        wp_update_post([
+                            'ID' => $attachment_id,
+                            'post_title' => sanitize_text_field($title),
+                            'post_name' => \function_exists('uimptr_sanitize_attachment_slug_from_title')
+                                ? \uimptr_sanitize_attachment_slug_from_title($title)
+                                : sanitize_title(str_replace('.', '-', $title))
+                        ]);
+                    }
                 }
                 
                 if (!empty($metadata['description'])) {

@@ -175,7 +175,11 @@ class AjaxHandler {
 	 * Handle get import progress
 	 */
 	public static function handle_get_import_progress() {
-		\check_ajax_referer( 'uimptr_ajax_nonce', 'nonce' );
+		if ( function_exists( '\uimptr_check_ajax_request' ) ) {
+			\uimptr_check_ajax_request();
+		} else {
+			\check_ajax_referer( 'uimptr_ajax', 'nonce' );
+		}
 
 		$import_id = isset( $_POST['import_id'] ) ? sanitize_text_field( \wp_unslash( $_POST['import_id'] ) ) : '';
 		
@@ -183,7 +187,10 @@ class AjaxHandler {
 			\wp_send_json_error( array( 'message' => 'Invalid import ID' ) );
 		}
 
-		$progress = \get_transient( "uimptr_import_progress_{$import_id}" );
+		$progress_key = \function_exists( '\uimptr_get_legacy_import_progress_transient_key' )
+			? \uimptr_get_legacy_import_progress_transient_key( $import_id )
+			: 'uimptr_import_progress_' . (int) \get_current_user_id() . '_' . sanitize_key( (string) $import_id );
+		$progress = \get_transient( $progress_key );
 
 		if ( ! $progress ) {
 			\wp_send_json_error( array( 'message' => 'Progress not found' ) );
@@ -196,13 +203,23 @@ class AjaxHandler {
 	 * Handle stop import
 	 */
 	public static function handle_stop_import() {
-		\check_ajax_referer( 'uimptr_ajax_nonce', 'nonce' );
+		if ( function_exists( '\uimptr_check_ajax_request' ) ) {
+			\uimptr_check_ajax_request();
+		} else {
+			\check_ajax_referer( 'uimptr_ajax', 'nonce' );
+		}
 
 		$import_id = isset( $_POST['import_id'] ) ? sanitize_text_field( \wp_unslash( $_POST['import_id'] ) ) : '';
 
 		if ( ! empty( $import_id ) ) {
-			\delete_transient( "uimptr_import_progress_{$import_id}" );
-			\delete_transient( "uimptr_import_urls_{$import_id}" );
+			$progress_key = \function_exists( '\uimptr_get_legacy_import_progress_transient_key' )
+				? \uimptr_get_legacy_import_progress_transient_key( $import_id )
+				: 'uimptr_import_progress_' . (int) \get_current_user_id() . '_' . sanitize_key( (string) $import_id );
+			$urls_key = \function_exists( '\uimptr_get_legacy_import_urls_transient_key' )
+				? \uimptr_get_legacy_import_urls_transient_key( $import_id )
+				: 'uimptr_import_urls_' . (int) \get_current_user_id() . '_' . sanitize_key( (string) $import_id );
+			\delete_transient( $progress_key );
+			\delete_transient( $urls_key );
 		}
 
 		\wp_send_json_success( array( 'message' => 'Import stopped' ) );
@@ -212,6 +229,12 @@ class AjaxHandler {
 	 * Handle subscribe dismiss
 	 */
 	public static function handle_subscribe_dismiss() {
+		if ( function_exists( '\uimptr_check_ajax_request' ) ) {
+			\uimptr_check_ajax_request();
+		} else {
+			\check_ajax_referer( 'uimptr_ajax', 'nonce' );
+		}
+
 		\update_user_option( \get_current_user_id(), 'bfu_subscribe_notice_dismissed', 1 );
 		\wp_send_json_success();
 	}
@@ -220,7 +243,12 @@ class AjaxHandler {
 	 * Handle AJAX connection test
 	 */
 	public static function handle_test_ajax_connection() {
-		\check_ajax_referer( 'uimptr_ajax_nonce', 'nonce' );
+		if ( function_exists( '\uimptr_check_ajax_request' ) ) {
+			\uimptr_check_ajax_request();
+		} else {
+			\check_ajax_referer( 'uimptr_ajax', 'nonce' );
+		}
+
 		\wp_send_json_success( array( 'message' => 'AJAX connection successful' ) );
 	}
 }

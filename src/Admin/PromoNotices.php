@@ -75,11 +75,6 @@ class PromoNotices {
                 ]
             ]
         ]);
-        
-        // Debug: Log that notice was added
-        if ( isset( $_GET['debug_notices'] ) && current_user_can( 'manage_options' ) ) {
-            error_log( 'PromoNotices: Added notice. Total notices: ' . count( $this->notices ) );
-        }
     }
 
     /**
@@ -131,22 +126,6 @@ class PromoNotices {
 
         // Only show on relevant admin pages
         $screen = get_current_screen();
-        
-        // Debug mode: Show why notices aren't appearing
-        if ( isset( $_GET['debug_notices'] ) && current_user_can( 'manage_options' ) ) {
-            echo '<div class="notice notice-info"><p>';
-            echo '<strong>PromoNotices Debug:</strong><br>';
-            echo 'Current Screen ID: <code>' . esc_html( $screen ? $screen->id : 'NULL' ) . '</code><br>';
-            echo 'Allowed Screen IDs: <code>media_page_import-images-url, plugins, dashboard</code><br>';
-            echo 'Total Notices Registered: <code>' . count( $this->notices ) . '</code><br>';
-            if ( $screen && in_array( $screen->id, ['media_page_import-images-url', 'plugins', 'dashboard'] ) ) {
-                echo '✓ Screen ID matches!<br>';
-            } else {
-                echo '✗ Screen ID does NOT match<br>';
-            }
-            echo '</p></div>';
-        }
-        
         if ( ! $screen || ! in_array( $screen->id, [
             'media_page_import-images-url',  // Correct screen ID for URL Image Importer
             'plugins',
@@ -268,7 +247,7 @@ class PromoNotices {
 
         wp_localize_script( 'uimptr-promo-notices', 'uimptrPromo', [
             'ajaxurl' => admin_url( 'admin-ajax.php' ),
-            'nonce'   => wp_create_nonce( 'uimptr_promo_nonce' ),
+            'nonce'   => function_exists( '\uimptr_create_ajax_nonce' ) ? \uimptr_create_ajax_nonce() : wp_create_nonce( 'uimptr_ajax' ),
         ] );
     }
 
@@ -276,7 +255,11 @@ class PromoNotices {
 	 * Handle AJAX promo action (dismiss, delay, or link click).
 	 */
 	public function handle_promo_action() {
-        check_ajax_referer( 'uimptr_promo_nonce', 'nonce' );
+        if ( function_exists( '\uimptr_check_ajax_request' ) ) {
+            \uimptr_check_ajax_request();
+        } else {
+            check_ajax_referer( 'uimptr_ajax', 'nonce' );
+        }
 
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Permission denied' );
