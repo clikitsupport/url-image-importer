@@ -1,0 +1,75 @@
+name: Build and ZIP WordPress Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (e.g., 1.2.3)"
+        required: true
+
+jobs:
+  build-zip:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: dom, libxml, simplexml, gd, fileinfo, mbstring
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies & build plugin
+        run: |
+          composer install --no-dev --prefer-dist --no-progress --no-interaction --optimize-autoloader
+
+      - name: Extract version and create ZIP
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG##*/}"
+          PLUGIN_SLUG="url-image-importer"
+          ZIP_NAME="${PLUGIN_SLUG}-v${VERSION}.zip"
+
+          echo "Tag: $TAG"
+          echo "Version: $VERSION"
+          echo "Creating ZIP: $ZIP_NAME"
+
+          rm -rf "$PLUGIN_SLUG"
+          mkdir "$PLUGIN_SLUG"
+
+          rsync -av ./ "$PLUGIN_SLUG/" \
+            --exclude=".git" \
+            --exclude="vendor/bin" \
+            --exclude=".github" \
+            --exclude="*.zip" \
+            --exclude="$PLUGIN_SLUG" \
+            --exclude="tests" \
+            --exclude="playground" \
+            --exclude="phpunit.xml" \
+            --exclude="phpunit.xml.dist" \
+            --exclude=".phpunit.result.cache" \
+            --exclude="composer.json" \
+            --exclude="composer.lock"
+
+          rm -f "$ZIP_NAME"
+          zip -r "$ZIP_NAME" "$PLUGIN_SLUG"
+
+      - name: Commit ZIP file to root
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG##*/}"
+          ZIP_NAME="url-image-importer-v${VERSION}.zip"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "$ZIP_NAME"
+          git commit -m "Update ZIP: $ZIP_NAME" || echo "No changes to commit"
+          git push
