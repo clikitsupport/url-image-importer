@@ -2,8 +2,8 @@
 Contributors: bww
 Tags: import image, image import, import image to media library, media library, csv import, xml import
 Requires at least: 5.3
-Tested up to: 6.7.1
-Stable tag: 1.1
+Tested up to: 7.0
+Stable tag: 1.2
 Requires PHP: 7.4
 License: GPLv2 or higher
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -45,7 +45,7 @@ Upload a CSV file containing one or more image URLs (and optional metadata). The
 
 ### Google Drive Image Imports
 
-Paste a public Google Drive image file link into the URL importer or include one in your CSV. The file must be publicly downloadable without signing in. Google Drive folders, private files, videos, Docs, Sheets, Slides, Forms, and other non-image items are skipped instead of imported.
+Paste a public Google Drive image file link into the URL importer or include one in your CSV. The file must be publicly downloadable without signing in, and URL Image Importer validates the downloaded file contents before importing it. Google Drive folders, private files, videos, Docs, Sheets, Slides, Forms, and other non-image items are skipped instead of imported.
 
 ### XML Imports from WordPress Export Feature
 
@@ -88,7 +88,7 @@ Yes! You can upload a CSV file with one or multiple image URLs listed in a colum
 
 = Can I import images from Google Drive? =
 
-Yes, if the Google Drive link points directly to a public image file that can be downloaded without signing in. Google Drive folders, videos, Docs, Sheets, Slides, Forms, private files, and other non-image files are not supported.
+Yes, in the URL importer and CSV importer, if the Google Drive link points directly to a public image file that can be downloaded without signing in. Google Drive folders, videos, Docs, Sheets, Slides, Forms, private files, and other non-image files are not supported. Google API credentials and OAuth are not required.
 
 = Can I import images from a WordPress XML export? =
 
@@ -129,6 +129,13 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 3. Submit the form. If successful, the image(s) will be added to the Media Library, and you’ll get a link to edit them.
 
 == Changelog ==
+
+= 1.2 - 05/27/2026 =
+- Added support for importing public Google Drive image file links from the URL importer and CSV importer.
+- Added content-based validation for Google Drive downloads so non-images, private/login pages, folders, videos, and Google Workspace document links are skipped instead of imported.
+- Improved CSV handling so Google Drive share links without image file extensions are accepted for import preview and validated during import.
+- Fixed CSV preview behavior for already-imported URLs so duplicates can be handled by the batch importer and URL mapping export.
+- Added PHPUnit coverage for Google Drive URL parsing, CSV candidate detection, duplicate handling, Drive download validation, and batch skip behavior.
 
 = 1.1 - 05/15/2026 =
 - Cleaner image titles: imported images now use the filename without the ".jpg" or ".png" extension as the image's title and URL handle in your Media Library, matching what WordPress does for a manual upload. Applies to URL, WordPress XML, and CSV imports.

@@ -3,14 +3,14 @@
  *
  * Plugin Name: URL Image Importer
  * Description: A plugin to import multiple images into the WordPress Media Library from URLs.
- * Version: 1.1
+ * Version: 1.2
  * Author: Infinite Uploads
  * Author URI: https://infiniteuploads.com
  * Text Domain: url-image-importer
  * License: GPL2
  *
  * @package UrlImageImporter
- * @version 1.1
+ * @version 1.2
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 $upload_dir = wp_upload_dir();
 
 define( 'UIMPTR_PATH', plugin_dir_path( __FILE__ ) );
-define( 'UIMPTR_VERSION', '1.1' );
+define( 'UIMPTR_VERSION', '1.2' );
 
 define( 'UPLOADBLOGSDIR', $upload_dir['basedir'] );  // Use basedir for root uploads folder, not path (current month)
 define( 'UIMPTR_AJAX_NONCE_ACTION', 'uimptr_ajax' );
@@ -325,16 +325,20 @@ function uimptr_check_svg_filetype( $data, $file, $filename, $mimes ) {
 function uimptr_sanitize_svg_content( $content ) {
 	// Try to use the enshrined/svg-sanitize library (recommended approach)
 	if ( class_exists( '\\enshrined\\svgSanitize\\Sanitizer' ) ) {
-		$sanitizer = new \enshrined\svgSanitize\Sanitizer();
-		$sanitizer->minify( true );
-		$sanitized = $sanitizer->sanitize( $content );
-		
-		// The library returns false if sanitization fails
-		if ( $sanitized === false ) {
-			return false;
+		try {
+			$sanitizer = new \enshrined\svgSanitize\Sanitizer();
+			$sanitizer->minify( true );
+			$sanitized = $sanitizer->sanitize( $content );
+			
+			// The library returns false if sanitization fails
+			if ( $sanitized === false ) {
+				return false;
+			}
+			
+			return $sanitized;
+		} catch ( Throwable $exception ) {
+			return uimptr_sanitize_svg_content_with_dom( $content );
 		}
-		
-		return $sanitized;
 	}
 
 	return uimptr_sanitize_svg_content_with_dom( $content );
@@ -3300,7 +3304,7 @@ function uimptr_initialize_mapping_export( $batch_id ) {
 		return new WP_Error( 'mapping_file_create_failed', 'Failed to create mapping export file.' );
 	}
 
-	$header_written = fputcsv( $handle, array( 'Old URL (external)', 'New URL (local WP)' ) );
+	$header_written = fputcsv( $handle, array( 'Old URL (external)', 'New URL (local WP)' ), ',', '"', '\\' );
 	fclose( $handle );
 
 	if ( false === $header_written ) {
@@ -3379,7 +3383,10 @@ function uimptr_append_mapping_export_row( $batch_id, $old_url, $new_url ) {
 		array(
 			uimptr_escape_csv_cell_for_spreadsheet( $old_url ),
 			uimptr_escape_csv_cell_for_spreadsheet( $new_url ),
-		)
+		),
+		',',
+		'"',
+		'\\'
 	);
 	fclose( $handle );
 
@@ -4090,7 +4097,7 @@ function uimptr_extract_urls_from_csv_content( $csv_content, $preserve_dates = f
 	rewind( $stream );
 	
 	// Get header row
-	$headers = fgetcsv( $stream );
+	$headers = fgetcsv( $stream, 0, ',', '"', '\\' );
 	if ( $headers === false ) {
 		fclose( $stream );
 		return new WP_Error( 'invalid_csv', 'Failed to parse CSV file.' );
@@ -4130,7 +4137,7 @@ function uimptr_extract_urls_from_csv_content( $csv_content, $preserve_dates = f
 	$images_only = isset( $_POST['images_only'] ) && $_POST['images_only'];
 	
 	// Read each row
-	while ( ( $data = fgetcsv( $stream ) ) !== false ) {
+	while ( ( $data = fgetcsv( $stream, 0, ',', '"', '\\' ) ) !== false ) {
 		// Skip if not enough columns
 		if ( count( $data ) <= $url_index ) {
 			continue;
