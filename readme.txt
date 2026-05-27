@@ -20,6 +20,7 @@ The plugin fetches images directly from external links, validates them, and adds
 
 - Import any image directly into your WordPress Media Library from a URL—no file uploads required.
 - Import multiple images at once using a **CSV spreadsheet** with image URLs in bulk.
+- Import public image files from Google Drive share links in the URL and CSV import tools.
 - Import from **WordPress XML export files** to restore or migrate images between sites.
 - Export a spreadsheet-ready **URL mapping CSV** (Old URL → New URL) after batch imports for database replacement workflows.
 - Works seamlessly with any hosting environment or server setup.
@@ -31,7 +32,7 @@ The plugin fetches images directly from external links, validates them, and adds
 
 ### Import Images to your Media Library
 
-Paste in a publicly accessible URL with a compatible file extension or upload a CSV/XML file and enjoy media management ease.
+Paste in a publicly accessible URL with a compatible file extension, use a public Google Drive image file share link, or upload a CSV/XML file and enjoy media management ease.
 
 ### Bulk Import Support
 
@@ -41,6 +42,10 @@ For dedicated high-speed servers, running imports in chunks of 500-2,000 URLs pe
 ### CSV Imports
 
 Upload a CSV file containing one or more image URLs (and optional metadata). The plugin automatically processes each row and imports all valid images into your Media Library. Perfect for large-scale imports from spreadsheets or external asset lists.
+
+### Google Drive Image Imports
+
+Paste a public Google Drive image file link into the URL importer or include one in your CSV. The file must be publicly downloadable without signing in. Google Drive folders, private files, videos, Docs, Sheets, Slides, Forms, and other non-image items are skipped instead of imported.
 
 ### XML Imports from WordPress Export Feature
 
@@ -81,6 +86,10 @@ This plugin does not collect or share any data. Site admins can optionally subsc
 
 Yes! You can upload a CSV file with one or multiple image URLs listed in a column, and the plugin will automatically import them all.
 
+= Can I import images from Google Drive? =
+
+Yes, if the Google Drive link points directly to a public image file that can be downloaded without signing in. Google Drive folders, videos, Docs, Sheets, Slides, Forms, private files, and other non-image files are not supported.
+
 = Can I import images from a WordPress XML export? =
 
 Yes! You can upload a WordPress XML export file, and the importer will detect all image attachments and import them into your Media Library.
@@ -91,7 +100,7 @@ Yes. The import screen includes a checked option to use filenames without extens
 
 = Can videos (mp4) be uploaded? =
 
-Not at the moment. Support for that is coming soon.
+Not at the moment. URL Image Importer currently imports image files only.
 
 = How large of a file can I import? =
 

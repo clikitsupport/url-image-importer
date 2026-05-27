@@ -1534,6 +1534,7 @@ function uimptr_import_images_url_page() {
 					batch_id: batchId,
 					start_index: startIndex,
 					batch_size: 3, // Smaller batch for stability
+					import_type: type,
 					preserve_dates: importOptions.preserveDates,
 					force_reimport: importOptions.forceReimport
 				};
@@ -1557,18 +1558,23 @@ function uimptr_import_images_url_page() {
 							// Show results from final batch only (for display)
 							var finalResults = data.results || [];
 							var finalErrors = data.errors || [];
+							var finalSkipped = data.skipped_messages || [];
 							var results = [];
 							
 							// Only show individual success messages for URL imports, not CSV or XML
 							if (type === 'url') {
 								finalResults.forEach(function(result) {
-									results.push('<div class="notice notice-success"><p><?php esc_html_e( 'Success:', 'url-image-importer' ); ?> ' + result.url + '</p></div>');
+									results.push('<div class="notice notice-success"><p><?php esc_html_e( 'Success:', 'url-image-importer' ); ?> ' + escapeHtml(result.url) + '</p></div>');
 								});
 							}
 							
 							// Always show errors
 							finalErrors.forEach(function(error) {
-								results.push('<div class="notice notice-error"><p>' + error + '</p></div>');
+								results.push('<div class="notice notice-error"><p>' + escapeHtml(error) + '</p></div>');
+							});
+
+							finalSkipped.forEach(function(message) {
+								results.push('<div class="notice notice-warning"><p>' + escapeHtml(message) + '</p></div>');
 							});
 							
 							// Use cumulative stats for completion message, not just final batch
@@ -1578,7 +1584,8 @@ function uimptr_import_images_url_page() {
 							var mappingData = {
 								available: !!data.mapping_available,
 								rows: data.mapping_rows || 0,
-								batchId: data.mapping_batch_id || ''
+								batchId: data.mapping_batch_id || '',
+								skipped: data.stats ? data.stats.skipped : finalSkipped.length
 							};
 							
 							finishImport(type, totalImported, totalErrors, results, mappingData);
@@ -1682,7 +1689,11 @@ function uimptr_import_images_url_page() {
 				}
 			}
 		}
-		
+
+		function escapeHtml(value) {
+			return $('<div>').text(value || '').html();
+		}
+
 		function stopImport(batchId, type) {
 			// Disable the cancel button and show stopping message
 			$('#cancel-' + type + '-import').prop('disabled', true).text('<?php esc_html_e( 'Stopping...', 'url-image-importer' ); ?>');
@@ -1872,6 +1883,10 @@ function uimptr_import_images_url_page() {
 				message = '<?php esc_html_e( 'Import canceled.', 'url-image-importer' ); ?> ' + 
 					'<?php esc_html_e( 'Imported:', 'url-image-importer' ); ?> ' + imported + ', ' +
 					'<?php esc_html_e( 'Errors:', 'url-image-importer' ); ?> ' + errors;
+			}
+
+			if (mappingData && typeof mappingData.skipped !== 'undefined') {
+				message += ', <?php esc_html_e( 'Skipped:', 'url-image-importer' ); ?> ' + mappingData.skipped;
 			}
 
 			if (mappingData && mappingData.available) {
@@ -2194,6 +2209,206 @@ function uimptr_get_filename_from_content_disposition( $content_disposition ) {
 }
 
 /**
+ * Determine whether a URL points at a supported Google Drive host.
+ *
+ * @param string $url URL to inspect.
+ * @return bool
+ */
+function uimptr_is_google_drive_url( $url ) {
+	$host = strtolower( (string) parse_url( (string) $url, PHP_URL_HOST ) );
+	$host = preg_replace( '/^www\./', '', $host );
+
+	return in_array( $host, array( 'drive.google.com', 'docs.google.com', 'drive.usercontent.google.com' ), true );
+}
+
+/**
+ * Sanitize a Google Drive file ID.
+ *
+ * @param string $file_id Raw Drive file ID.
+ * @return string
+ */
+function uimptr_sanitize_google_drive_file_id( $file_id ) {
+	return preg_replace( '/[^A-Za-z0-9_-]/', '', rawurldecode( (string) $file_id ) );
+}
+
+/**
+ * Extract query parameters from a URL.
+ *
+ * @param string $url URL to parse.
+ * @return array
+ */
+function uimptr_get_url_query_params( $url ) {
+	$query = (string) parse_url( (string) $url, PHP_URL_QUERY );
+
+	if ( '' === $query ) {
+		return array();
+	}
+
+	$params = array();
+	parse_str( $query, $params );
+
+	return is_array( $params ) ? $params : array();
+}
+
+/**
+ * Extract a Google Drive file ID or return a clear unsupported-link error.
+ *
+ * @param string $url Google Drive URL.
+ * @return string|WP_Error
+ */
+function uimptr_extract_google_drive_file_id( $url ) {
+	if ( ! uimptr_is_google_drive_url( $url ) ) {
+		return new WP_Error( 'google_drive_malformed_url', 'This is not a supported Google Drive URL.' );
+	}
+
+	$path = rawurldecode( (string) parse_url( (string) $url, PHP_URL_PATH ) );
+
+	if ( preg_match( '#/(?:drive/(?:u/\d+/)?)?folders/[^/?\#]+#i', $path ) || preg_match( '#/folderview#i', $path ) ) {
+		return new WP_Error( 'google_drive_folder_not_supported', 'Google Drive folders are not supported. Please link directly to a public image file.' );
+	}
+
+	if ( preg_match( '#^/(document|spreadsheets|presentation|forms|drawings)/#i', $path ) ) {
+		return new WP_Error( 'google_drive_workspace_not_supported', 'Google Docs, Sheets, Slides, Forms, and Drawings are not supported. Please link directly to a public image file.' );
+	}
+
+	if ( preg_match( '#/file/d/([^/?\#]+)#i', $path, $matches ) ) {
+		$file_id = uimptr_sanitize_google_drive_file_id( $matches[1] );
+		if ( '' !== $file_id ) {
+			return $file_id;
+		}
+	}
+
+	$params = uimptr_get_url_query_params( $url );
+	if ( ! empty( $params['id'] ) && ! is_array( $params['id'] ) ) {
+		$file_id = uimptr_sanitize_google_drive_file_id( $params['id'] );
+		if ( '' !== $file_id ) {
+			return $file_id;
+		}
+	}
+
+	return new WP_Error( 'google_drive_malformed_url', 'Google Drive URL does not contain a file ID. Please use a share link to a public image file.' );
+}
+
+/**
+ * Get a Google Drive resource key from a URL when present.
+ *
+ * @param string $url Google Drive URL.
+ * @return string
+ */
+function uimptr_get_google_drive_resource_key( $url ) {
+	$params = uimptr_get_url_query_params( $url );
+
+	if ( empty( $params['resourcekey'] ) || is_array( $params['resourcekey'] ) ) {
+		return '';
+	}
+
+	return sanitize_text_field( (string) $params['resourcekey'] );
+}
+
+/**
+ * Build a public Google Drive direct-download URL for a file ID.
+ *
+ * @param string $file_id      Google Drive file ID.
+ * @param string $resource_key Optional Drive resource key.
+ * @return string
+ */
+function uimptr_build_google_drive_download_url( $file_id, $resource_key = '' ) {
+	$args = array(
+		'export' => 'download',
+		'id'     => $file_id,
+	);
+
+	if ( '' !== $resource_key ) {
+		$args['resourcekey'] = $resource_key;
+	}
+
+	return add_query_arg( $args, 'https://drive.google.com/uc' );
+}
+
+/**
+ * Resolve a Google Drive URL to a public direct-download URL.
+ *
+ * @param string $url Google Drive URL.
+ * @return string|WP_Error
+ */
+function uimptr_get_google_drive_download_url( $url ) {
+	$file_id = uimptr_extract_google_drive_file_id( $url );
+	if ( is_wp_error( $file_id ) ) {
+		return $file_id;
+	}
+
+	return uimptr_build_google_drive_download_url( $file_id, uimptr_get_google_drive_resource_key( $url ) );
+}
+
+/**
+ * Get the canonical source URL used for Google Drive dedupe.
+ *
+ * @param string $url Google Drive URL.
+ * @return string
+ */
+function uimptr_get_google_drive_canonical_url( $url ) {
+	$file_id = uimptr_extract_google_drive_file_id( $url );
+	if ( is_wp_error( $file_id ) ) {
+		return '';
+	}
+
+	return 'https://drive.google.com/file/d/' . rawurlencode( $file_id ) . '/view';
+}
+
+/**
+ * Whether an HTTP response body appears to be an HTML page.
+ *
+ * @param string $body         Response body.
+ * @param string $content_type Response content type header.
+ * @return bool
+ */
+function uimptr_response_looks_like_html( $body, $content_type = '' ) {
+	$content_type = strtolower( trim( (string) strtok( (string) $content_type, ';' ) ) );
+	if ( in_array( $content_type, array( 'text/html', 'application/xhtml+xml' ), true ) ) {
+		return true;
+	}
+
+	$probe = strtolower( ltrim( substr( (string) $body, 0, 512 ) ) );
+
+	return 0 === strpos( $probe, '<!doctype html' ) || 0 === strpos( $probe, '<html' );
+}
+
+/**
+ * Determine if an import error should count as a skipped item.
+ *
+ * @param WP_Error $error Import error.
+ * @return bool
+ */
+function uimptr_is_skippable_import_error( $error ) {
+	if ( ! is_wp_error( $error ) ) {
+		return false;
+	}
+
+	return in_array(
+		$error->get_error_code(),
+		array(
+			'google_drive_folder_not_supported',
+			'google_drive_workspace_not_supported',
+			'google_drive_malformed_url',
+			'google_drive_not_public_image',
+			'google_drive_non_image',
+		),
+		true
+	);
+}
+
+/**
+ * Format a user-facing skipped import message.
+ *
+ * @param string   $url   Original source URL.
+ * @param WP_Error $error Import error.
+ * @return string
+ */
+function uimptr_format_import_skip_message( $url, WP_Error $error ) {
+	return sprintf( 'Skipped %1$s: %2$s', esc_url_raw( $url ), $error->get_error_message() );
+}
+
+/**
  * Function to import the image from a URL
  *
  * @param url   $image_url       URL of the image to import.
@@ -2201,8 +2416,9 @@ function uimptr_get_filename_from_content_disposition( $content_disposition ) {
  * @param array $metadata        Optional attachment metadata.
  * @param bool  $preserve_dates  Whether to preserve metadata dates.
  * @param bool  $_deprecated_strip_extension Deprecated. Attachment titles always strip image extensions.
+ * @param bool  $allow_google_drive Whether Google Drive share URLs should be resolved before download.
  * */
-function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata = array(), $preserve_dates = false, $_deprecated_strip_extension = true ) {
+function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata = array(), $preserve_dates = false, $_deprecated_strip_extension = true, $allow_google_drive = true ) {
 	// Check for stop command if batch_id is provided
 	if ( $batch_id ) {
 		$cancel_flag = get_transient( uimptr_get_batch_cancel_transient_key( $batch_id ) );
@@ -2210,8 +2426,18 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 			return new WP_Error( 'import_cancelled', 'Import was cancelled by user' );
 		}
 	}
+
+	$download_url            = $image_url;
+	$is_google_drive_source = $allow_google_drive && uimptr_is_google_drive_url( $image_url );
+
+	if ( $is_google_drive_source ) {
+		$download_url = uimptr_get_google_drive_download_url( $image_url );
+		if ( is_wp_error( $download_url ) ) {
+			return $download_url;
+		}
+	}
 	
-	$response = wp_remote_get( $image_url, array(
+	$response = wp_remote_get( $download_url, array(
 		'timeout' => 30,
 		'redirection' => 5,
 		'user-agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . get_bloginfo( 'url' )
@@ -2223,17 +2449,29 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 
 	$response_code = wp_remote_retrieve_response_code( $response );
 	if ( $response_code !== 200 ) {
+		if ( $is_google_drive_source ) {
+			return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+		}
+
 		return new WP_Error( 'image_download_failed', sprintf( 'Failed to download image. HTTP status: %d', $response_code ) );
 	}
 
 	$image_data = wp_remote_retrieve_body( $response );
 	
 	if ( empty( $image_data ) ) {
+		if ( $is_google_drive_source ) {
+			return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+		}
+
 		return new WP_Error( 'invalid_image', 'No data received from URL.' );
 	}
 
 	$response_content_type = (string) wp_remote_retrieve_header( $response, 'content-type' );
 	$response_content_disposition = (string) wp_remote_retrieve_header( $response, 'content-disposition' );
+
+	if ( $is_google_drive_source && uimptr_response_looks_like_html( $image_data, $response_content_type ) ) {
+		return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+	}
 
 	// Extract filename from URL
 	$upload_dir = wp_upload_dir();
@@ -2316,12 +2554,20 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 	// Clean up and reject if validation fails
 	if ( ! $wp_filetype['type'] || ! $wp_filetype['ext'] ) {
 		uimptr_delete_file_with_logging( $temp_file, 'invalid image validation cleanup' );
+		if ( $is_google_drive_source ) {
+			return new WP_Error( 'google_drive_non_image', 'Google Drive file is not a supported image.' );
+		}
+
 		return new WP_Error( 'invalid_image', 'File failed content validation. Not a valid image file.' );
 	}
 	
 	// SECURITY: Ensure the detected type is an image mime type
 	if ( strpos( $wp_filetype['type'], 'image/' ) !== 0 ) {
 		uimptr_delete_file_with_logging( $temp_file, 'non-image mime cleanup' );
+		if ( $is_google_drive_source ) {
+			return new WP_Error( 'google_drive_non_image', 'Google Drive file is not a supported image.' );
+		}
+
 		return new WP_Error( 'invalid_image', 'File must be an image type.' );
 	}
 	
@@ -2333,6 +2579,10 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		$svg_content = file_get_contents( $temp_file );
 		if ( $svg_content === false || strpos( $svg_content, '<svg' ) === false ) {
 			uimptr_delete_file_with_logging( $temp_file, 'invalid SVG cleanup' );
+			if ( $is_google_drive_source ) {
+				return new WP_Error( 'google_drive_non_image', 'Google Drive file is not a supported image.' );
+			}
+
 			return new WP_Error( 'invalid_svg', 'File is not a valid SVG file.' );
 		}
 		
@@ -2356,6 +2606,10 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		$image_info = @getimagesize( $temp_file );
 		if ( $image_info === false ) {
 			uimptr_delete_file_with_logging( $temp_file, 'invalid raster image cleanup' );
+			if ( $is_google_drive_source ) {
+				return new WP_Error( 'google_drive_non_image', 'Google Drive file is not a supported image.' );
+			}
+
 			return new WP_Error( 'invalid_image', 'File is not a valid image format.' );
 		}
 		
@@ -3171,6 +3425,7 @@ function uimptr_ajax_batch_import() {
 	$batch_id    = sanitize_text_field( $_POST['batch_id'] ?? '' );
 	$start_index = intval( $_POST['start_index'] ?? 0 );
 	$batch_size  = intval( $_POST['batch_size'] ?? 5 ); // Process 5 URLs at a time
+	$import_type = sanitize_key( $_POST['import_type'] ?? 'url' );
 	$urls_raw    = isset( $_POST['urls'] ) ? wp_unslash( $_POST['urls'] ) : '';
 	$urls_payload = array();
 	if ( ! empty( $urls_raw ) ) {
@@ -3242,8 +3497,15 @@ function uimptr_ajax_batch_import() {
 	$batch_stats = get_transient( uimptr_get_batch_stats_transient_key( $batch_id ) ) ?: array(
 		'success' => 0,
 		'failed' => 0,
-		'skipped' => 0
+		'skipped' => 0,
+		'skipped_messages' => array()
 	);
+
+	if ( ! isset( $batch_stats['skipped_messages'] ) || ! is_array( $batch_stats['skipped_messages'] ) ) {
+		$batch_stats['skipped_messages'] = array();
+	}
+
+	$allow_google_drive = in_array( $import_type, array( 'url', 'csv' ), true );
 	
 	// Initialize batch counters
 	$batch_success = 0;
@@ -3298,9 +3560,17 @@ function uimptr_ajax_batch_import() {
 		}
 		
 		// Import the image with metadata
-		$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates );
+		$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates, true, $allow_google_drive );
 		
 		if ( is_wp_error( $attachment_id ) ) {
+			if ( uimptr_is_skippable_import_error( $attachment_id ) ) {
+				$skip_message = uimptr_format_import_skip_message( $url, $attachment_id );
+				$batch_stats['skipped_messages'][] = $skip_message;
+				$batch_stats['skipped_messages'] = array_slice( $batch_stats['skipped_messages'], 0, 50 );
+				$batch_skipped++;
+				continue;
+			}
+
 			$errors[] = "Failed to import {$url}: " . $attachment_id->get_error_message();
 			$batch_failed++;
 			continue;
@@ -3372,6 +3642,7 @@ function uimptr_ajax_batch_import() {
 		'is_complete' => $is_complete,
 		'results' => $results,
 		'errors' => $errors,
+		'skipped_messages' => $batch_stats['skipped_messages'],
 		'next_index' => $is_complete ? null : $end_index,
 		'stats' => array(
 			'success' => $batch_stats['success'],
@@ -3872,8 +4143,8 @@ function uimptr_extract_urls_from_csv_content( $csv_content, $preserve_dates = f
 			continue;
 		}
 		
-		// Skip if not an image URL (when images_only is checked)
-		if ( $images_only && !uimptr_is_image_url( $url ) ) {
+		// Skip if not an image URL candidate (when images_only is checked).
+		if ( $images_only && ! uimptr_is_csv_image_import_candidate_url( $url ) ) {
 			continue;
 		}
 		
@@ -3954,6 +4225,19 @@ function uimptr_is_image_url( $url ) {
 }
 
 /**
+ * Check if a CSV row is a candidate for image import.
+ *
+ * Google Drive links are validated after download because public share URLs do not
+ * expose reliable image extensions.
+ *
+ * @param string $url URL to check.
+ * @return bool
+ */
+function uimptr_is_csv_image_import_candidate_url( $url ) {
+	return uimptr_is_image_url( $url ) || uimptr_is_google_drive_url( $url );
+}
+
+/**
  * Normalize a source URL before storing or looking it up.
  *
  * @param string $url Source URL.
@@ -3964,6 +4248,13 @@ function uimptr_normalize_source_url( $url ) {
 
 	if ( '' === $url ) {
 		return '';
+	}
+
+	if ( uimptr_is_google_drive_url( $url ) ) {
+		$canonical_google_drive_url = uimptr_get_google_drive_canonical_url( $url );
+		if ( '' !== $canonical_google_drive_url ) {
+			return $canonical_google_drive_url;
+		}
 	}
 
 	$normalized = esc_url_raw( $url );
@@ -3981,6 +4272,10 @@ function uimptr_normalize_source_url( $url ) {
  * @return bool
  */
 function uimptr_url_supports_filename_dedupe( $url ) {
+	if ( uimptr_is_google_drive_url( $url ) ) {
+		return false;
+	}
+
 	$query    = parse_url( $url, PHP_URL_QUERY );
 	$fragment = parse_url( $url, PHP_URL_FRAGMENT );
 
