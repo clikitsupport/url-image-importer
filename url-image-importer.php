@@ -4147,13 +4147,9 @@ function uimptr_extract_urls_from_csv_content( $csv_content, $preserve_dates = f
 		if ( $images_only && ! uimptr_is_csv_image_import_candidate_url( $url ) ) {
 			continue;
 		}
-		
-		// Skip if already exists (unless force_reimport is enabled).
-		$existing_attachment_id = uimptr_get_existing_attachment_id_for_url( $url );
-		if ( $existing_attachment_id && ! $force_reimport ) {
-			error_log( "URL Image Importer: Skipping existing CSV file from URL: {$url}" );
-			continue;
-		}
+
+		// Keep existing source URLs in the preview so the batch importer can
+		// record URL mapping rows for deduped media.
 		
 		// Extract metadata
 		$metadata = array();
