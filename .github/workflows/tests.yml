@@ -33,4 +33,9 @@ jobs:
         run: composer install --prefer-dist --no-progress --no-interaction
 
       - name: Run PHPUnit
-        run: composer test
+        run: |
+          if [ -f phpunit.xml ] || [ -f phpunit.xml.dist ] || [ -d tests ]; then
+            composer test
+          else
+            echo "No PHPUnit test suite is configured; skipping."
+          fi
