@@ -2,8 +2,8 @@
 Contributors: bww
 Tags: import image, image import, import image to media library, media library, csv import, xml import
 Requires at least: 5.3
-Tested up to: 6.7.1
-Stable tag: 1.1
+Tested up to: 7.0
+Stable tag: 1.2
 Requires PHP: 7.4
 License: GPLv2 or higher
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,7 @@ The plugin fetches images directly from external links, validates them, and adds
 
 - Import any image directly into your WordPress Media Library from a URL—no file uploads required.
 - Import multiple images at once using a **CSV spreadsheet** with image URLs in bulk.
+- Import public image files from Google Drive share links in the URL and CSV import tools.
 - Import from **WordPress XML export files** to restore or migrate images between sites.
 - Export a spreadsheet-ready **URL mapping CSV** (Old URL → New URL) after batch imports for database replacement workflows.
 - Works seamlessly with any hosting environment or server setup.
@@ -31,7 +32,7 @@ The plugin fetches images directly from external links, validates them, and adds
 
 ### Import Images to your Media Library
 
-Paste in a publicly accessible URL with a compatible file extension or upload a CSV/XML file and enjoy media management ease.
+Paste in a publicly accessible URL with a compatible file extension, use a public Google Drive image file share link, or upload a CSV/XML file and enjoy media management ease.
 
 ### Bulk Import Support
 
@@ -41,6 +42,10 @@ For dedicated high-speed servers, running imports in chunks of 500-2,000 URLs pe
 ### CSV Imports
 
 Upload a CSV file containing one or more image URLs (and optional metadata). The plugin automatically processes each row and imports all valid images into your Media Library. Perfect for large-scale imports from spreadsheets or external asset lists.
+
+### Google Drive Image Imports
+
+Paste a public Google Drive image file link into the URL importer or include one in your CSV. The file must be publicly downloadable without signing in, and URL Image Importer validates the downloaded file contents before importing it. Google Drive folders, private files, videos, Docs, Sheets, Slides, Forms, and other non-image items are skipped instead of imported.
 
 ### XML Imports from WordPress Export Feature
 
@@ -81,6 +86,10 @@ This plugin does not collect or share any data. Site admins can optionally subsc
 
 Yes! You can upload a CSV file with one or multiple image URLs listed in a column, and the plugin will automatically import them all.
 
+= Can I import images from Google Drive? =
+
+Yes, in the URL importer and CSV importer, if the Google Drive link points directly to a public image file that can be downloaded without signing in. Google Drive folders, videos, Docs, Sheets, Slides, Forms, private files, and other non-image files are not supported. Google API credentials and OAuth are not required.
+
 = Can I import images from a WordPress XML export? =
 
 Yes! You can upload a WordPress XML export file, and the importer will detect all image attachments and import them into your Media Library.
@@ -91,7 +100,7 @@ Yes. The import screen includes a checked option to use filenames without extens
 
 = Can videos (mp4) be uploaded? =
 
-Not at the moment. Support for that is coming soon.
+Not at the moment. URL Image Importer currently imports image files only.
 
 = How large of a file can I import? =
 
@@ -121,14 +130,20 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 
 == Changelog ==
 
-= 1.1 - 05/08/2026 =
-- Changed fallback attachment titles to match WordPress uploads by using the filename without its extension when no explicit title metadata is provided.
-- Added an import option to keep the previous full-filename title behavior when needed.
-- Added automatic URL mapping CSV export after batch imports with two columns: Old URL (external) and New URL (local WP).
-- Added secure mapping CSV download endpoint (`uimptr_download_url_mapping_csv`) with nonce and capability checks.
-- Improved large import reliability by caching URL payloads server-side between batch requests.
-- Added mapping cleanup handling for canceled imports and hourly cleanup of stale mapping files/transients.
-- Added UI guidance recommending 500-2,000 URLs per import run on dedicated high-speed servers.
+= 1.2 - 05/27/2026 =
+- Added support for importing public Google Drive image file links from the URL importer and CSV importer.
+- Added content-based validation for Google Drive downloads so non-images, private/login pages, folders, videos, and Google Workspace document links are skipped instead of imported.
+- Improved CSV handling so Google Drive share links without image file extensions are accepted for import preview and validated during import.
+- Fixed CSV preview behavior for already-imported URLs so duplicates can be handled by the batch importer and URL mapping export.
+
+= 1.1 - 05/15/2026 =
+- Cleaner image titles: imported images now use the filename without the ".jpg" or ".png" extension as the image's title and URL handle in your Media Library, matching what WordPress does for a manual upload. Applies to URL, WordPress XML, and CSV imports.
+- New URL mapping spreadsheet: after a batch import, you can download a CSV that pairs each original web URL with its new location in your Media Library — handy for find-and-replacing old image links across your posts. Only users with media upload permission can download the file.
+- Fixed: the "Download URL Mapping CSV" button could fail in some browsers and show an error page instead of saving the file. The download now works reliably and the saved filename keeps non-English characters intact.
+- Improved compatibility for sites running on Windows servers when verifying the mapping download.
+- Cleanup: partial mapping files are removed when an import is canceled, and older mapping files are tidied up automatically after a day.
+- Removed: a leftover developer test script that was accidentally included in earlier builds. It had no legitimate purpose after install and should not have shipped.
+- Removed: an unused developer setup helper script that did not belong in a release.
 
 = 1.0.8 - 12/05/2025 =
 **SECURITY FIX - SVG XSS VULNERABILITY**

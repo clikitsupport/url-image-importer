@@ -5,9 +5,7 @@
 # Test and coverage files
 /coverage/
 .phpunit.result.cache
-phpunit.xml.dist
 phpunit.xml
-/tests/
 /bin/
 
 # Config files (these can be committed if you want, or ignored)
