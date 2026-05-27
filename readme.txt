@@ -135,7 +135,6 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 - Added content-based validation for Google Drive downloads so non-images, private/login pages, folders, videos, and Google Workspace document links are skipped instead of imported.
 - Improved CSV handling so Google Drive share links without image file extensions are accepted for import preview and validated during import.
 - Fixed CSV preview behavior for already-imported URLs so duplicates can be handled by the batch importer and URL mapping export.
-- Added PHPUnit coverage for Google Drive URL parsing, CSV candidate detection, duplicate handling, Drive download validation, and batch skip behavior.
 
 = 1.1 - 05/15/2026 =
 - Cleaner image titles: imported images now use the filename without the ".jpg" or ".png" extension as the image's title and URL handle in your Media Library, matching what WordPress does for a manual upload. Applies to URL, WordPress XML, and CSV imports.
