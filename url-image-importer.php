@@ -952,7 +952,7 @@ function uimptr_import_images_url_page() {
 	// Handle URL Import
 	if ( isset( $_POST['image_urls'] ) ) {
 		check_admin_referer( 'uimptr-form-field', '_wpnonce_select_form' );
-		$image_urls = array_map( 'trim', explode( "\n", sanitize_textarea_field( wp_unslash( $_POST['image_urls'] ) ) ) );
+		$image_urls = array_filter( array_map( 'trim', preg_split( '/[\r\n,]+/', sanitize_textarea_field( wp_unslash( $_POST['image_urls'] ) ) ) ) );
 
 		foreach ( $image_urls as $image_url ) {
 			if ( filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
@@ -1034,7 +1034,7 @@ function uimptr_import_images_url_page() {
 			<div class="card upload">
 				<div class="card-header">
 					<div class="d-flex align-items-center">
-						<h5 class="m-0 mr-auto p-0"><?php echo esc_html( 'Image URLs (one per line)' ); ?></h5>
+						<h5 class="m-0 mr-auto p-0"><?php echo esc_html( 'Image URLs (one per line or comma-separated)' ); ?></h5>
 					</div>
 				</div>
 				<div class="card-body p-md-1">
@@ -1356,10 +1356,10 @@ function uimptr_import_images_url_page() {
 				return;
 			}
 			
-			var urlList = urls.split('\n').filter(function(url) {
-				return url.trim() !== '';
-			}).map(function(url) {
+			var urlList = urls.split(/[\r\n,]+/).map(function(url) {
 				return url.trim();
+			}).filter(function(url) {
+				return url !== '';
 			});
 			
 			// Show preview first
