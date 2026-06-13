@@ -3,14 +3,14 @@
  *
  * Plugin Name: URL Image Importer
  * Description: A plugin to import multiple images into the WordPress Media Library from URLs.
- * Version: 1.2
+ * Version: 1.2.1
  * Author: Infinite Uploads
  * Author URI: https://infiniteuploads.com
  * Text Domain: url-image-importer
  * License: GPL2
  *
  * @package UrlImageImporter
- * @version 1.2
+ * @version 1.2.1
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 $upload_dir = wp_upload_dir();
 
 define( 'UIMPTR_PATH', plugin_dir_path( __FILE__ ) );
-define( 'UIMPTR_VERSION', '1.2' );
+define( 'UIMPTR_VERSION', '1.2.1' );
 
 define( 'UPLOADBLOGSDIR', $upload_dir['basedir'] );  // Use basedir for root uploads folder, not path (current month)
 define( 'UIMPTR_AJAX_NONCE_ACTION', 'uimptr_ajax' );
@@ -914,6 +914,26 @@ function uimptr_handle_xml_import() {
 }
 
 /**
+ * Parse the raw "Image URLs" textarea input into a clean list of URLs.
+ *
+ * Accepts URLs separated by newlines and/or commas (in any combination), trims
+ * surrounding whitespace from each entry, and drops empty entries. Commas are a
+ * safe separator because a comma inside a URL is percent-encoded as %2C.
+ *
+ * @param string $raw Raw textarea value.
+ * @return string[] List of non-empty, trimmed URLs.
+ */
+function uimptr_parse_image_urls_input( $raw ) {
+	$parts = preg_split( '/[\r\n,]+/', (string) $raw );
+
+	if ( false === $parts ) {
+		return array();
+	}
+
+	return array_values( array_filter( array_map( 'trim', $parts ), 'strlen' ) );
+}
+
+/**
  * Import Image Form HTML
  */
 function uimptr_import_images_url_page() {
@@ -933,6 +953,7 @@ function uimptr_import_images_url_page() {
 	// Debug feature: Reset all dismissed notices for testing (add ?undismiss=1 to URL)
 	if ( isset( $_GET['undismiss'] ) && current_user_can( 'manage_options' ) ) {
 		// Reset URL Image Importer specific notices
+		delete_user_meta( get_current_user_id(), 'uimptr_notice_infinite_uploads_promo' );
 		delete_user_meta( get_current_user_id(), 'uimptr_notice_big_file_form_uploads_promo' );
 		
 		// Reset legacy notices if they exist
@@ -952,7 +973,7 @@ function uimptr_import_images_url_page() {
 	// Handle URL Import
 	if ( isset( $_POST['image_urls'] ) ) {
 		check_admin_referer( 'uimptr-form-field', '_wpnonce_select_form' );
-		$image_urls = array_filter( array_map( 'trim', preg_split( '/[\r\n,]+/', sanitize_textarea_field( wp_unslash( $_POST['image_urls'] ) ) ) ) );
+		$image_urls = uimptr_parse_image_urls_input( sanitize_textarea_field( wp_unslash( $_POST['image_urls'] ) ) );
 
 		foreach ( $image_urls as $image_url ) {
 			if ( filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
@@ -1056,11 +1077,15 @@ function uimptr_import_images_url_page() {
 							<button type="button" id="start-url-import" class="btn text-nowrap btn-primary btn-lg"><?php esc_html_e( 'Import Images from URLs', 'url-image-importer' ); ?></button>
 						</div>
 					</div>
-					<p class="description" style="text-align: center; margin-bottom: 10px;">
-						<?php esc_html_e( 'For dedicated high-speed servers, import in runs of 500-2,000 URLs for the best balance of speed and reliability.', 'url-image-importer' ); ?>
-					</p>
-					
-					<!-- Progress Bar for URL Import -->
+						<p class="description" style="text-align: center; margin-bottom: 10px;">
+							<?php esc_html_e( 'For dedicated high-speed servers, import in runs of 500-2,000 URLs for the best balance of speed and reliability.', 'url-image-importer' ); ?>
+						</p>
+						<p class="description" style="text-align: center; margin: 0 0 12px;">
+							<?php esc_html_e( 'Want unlimited storage space, CDN, video hosting, folders, and enhanced media library search?', 'url-image-importer' ); ?>
+							<a href="<?php echo esc_url( admin_url( 'options-general.php?page=big_file_uploads#upgrade-modal' ) ); ?>"><?php esc_html_e( 'Move your media files to the Infinite Uploads cloud.', 'url-image-importer' ); ?></a>
+						</p>
+						
+						<!-- Progress Bar for URL Import -->
 					<div id="url-progress-container" style="display: none; margin-top: 20px;">
 						<div class="progress-info">
 							<span id="url-progress-text">Starting import...</span>
@@ -1131,11 +1156,11 @@ function uimptr_import_images_url_page() {
 							<button type="button" id="start-xml-import" class="btn text-nowrap btn-primary btn-lg"><?php esc_html_e( 'Import from XML File', 'url-image-importer' ); ?></button>
 						</div>
 					</div>
-					<p class="description" style="text-align: center; margin-bottom: 10px;">
-						<?php esc_html_e( 'For dedicated high-speed servers, import in runs of 500-2,000 URLs for the best balance of speed and reliability.', 'url-image-importer' ); ?>
-					</p>
-					
-					<!-- Progress Bar for XML Import -->
+						<p class="description" style="text-align: center; margin-bottom: 10px;">
+							<?php esc_html_e( 'For dedicated high-speed servers, import in runs of 500-2,000 URLs for the best balance of speed and reliability.', 'url-image-importer' ); ?>
+						</p>
+						
+						<!-- Progress Bar for XML Import -->
 					<div id="xml-progress-container" style="display: none; margin-top: 20px;">
 						<div class="progress-info">
 							<span id="xml-progress-text">Processing XML file...</span>
@@ -1212,11 +1237,15 @@ function uimptr_import_images_url_page() {
 						<button type="button" id="start-csv-import" class="btn text-nowrap btn-primary btn-lg"><?php esc_html_e( 'Import from CSV File', 'url-image-importer' ); ?></button>
 					</div>
 				</div>
-				<p class="description" style="text-align: center; margin-bottom: 10px;">
-					<?php esc_html_e( 'For dedicated high-speed servers, import in runs of 500-2,000 URLs for the best balance of speed and reliability.', 'url-image-importer' ); ?>
-				</p>
-				
-				<!-- Progress Bar for CSV Import -->
+					<p class="description" style="text-align: center; margin-bottom: 10px;">
+						<?php esc_html_e( 'For dedicated high-speed servers, import in runs of 500-2,000 URLs for the best balance of speed and reliability.', 'url-image-importer' ); ?>
+					</p>
+					<p class="description" style="text-align: center; margin: 0 0 12px;">
+						<?php esc_html_e( 'Want unlimited storage space, CDN, video hosting, folders, and enhanced media library search?', 'url-image-importer' ); ?>
+						<a href="<?php echo esc_url( admin_url( 'options-general.php?page=big_file_uploads#upgrade-modal' ) ); ?>"><?php esc_html_e( 'Move your media files to the Infinite Uploads cloud.', 'url-image-importer' ); ?></a>
+					</p>
+					
+					<!-- Progress Bar for CSV Import -->
 				<div id="csv-progress-container" style="display: none; margin-top: 20px;">
 					<div class="progress-wrapper">
 						<div class="progress-info">
@@ -2413,6 +2442,337 @@ function uimptr_format_import_skip_message( $url, WP_Error $error ) {
 }
 
 /**
+ * Determine whether Big File Uploads is available for media sideload handling.
+ *
+ * @return bool
+ */
+function uimptr_is_big_file_uploads_active() {
+	if ( class_exists( 'TuxedoBigFileUploads' ) || class_exists( 'UrlBigFileUploads' ) ) {
+		return true;
+	}
+
+	return function_exists( 'is_plugin_active' )
+		&& is_plugin_active( 'tuxedo-big-file-uploads/tuxedo_big_file_uploads.php' );
+}
+
+/**
+ * Load WordPress media upload helpers when they are not already loaded.
+ *
+ * @return bool
+ */
+function uimptr_load_media_upload_dependencies() {
+	$includes = array(
+		'wp-admin/includes/file.php',
+		'wp-admin/includes/media.php',
+		'wp-admin/includes/image.php',
+	);
+
+	foreach ( $includes as $include ) {
+		$path = ABSPATH . $include;
+		if ( file_exists( $path ) ) {
+			require_once $path;
+		}
+	}
+
+	return function_exists( 'media_handle_upload' );
+}
+
+/**
+ * Whether the importer can hand a validated file to the Big File Uploads media path.
+ *
+ * @return bool
+ */
+function uimptr_can_use_big_file_uploads_sideload() {
+	return uimptr_is_big_file_uploads_active() && uimptr_load_media_upload_dependencies();
+}
+
+/**
+ * Get the Big File Uploads temporary directory path.
+ *
+ * @return string
+ */
+function uimptr_get_big_file_uploads_temp_dir() {
+	$default_temp_dir = defined( 'WP_CONTENT_DIR' )
+		? WP_CONTENT_DIR . '/bfu-temp'
+		: trailingslashit( wp_upload_dir()['basedir'] ) . 'bfu-temp';
+
+	return apply_filters( 'bfu_temp_dir', $default_temp_dir );
+}
+
+/**
+ * Get the chunk size used for Google Drive downloads via the BFU path.
+ *
+ * @return int
+ */
+function uimptr_get_big_file_uploads_download_chunk_size() {
+	$kb = defined( 'KB_IN_BYTES' ) ? KB_IN_BYTES : 1024;
+	$mb = defined( 'MB_IN_BYTES' ) ? MB_IN_BYTES : 1048576;
+
+	$chunk_size = defined( 'BIG_FILE_UPLOADS_CHUNK_SIZE_KB' )
+		? (int) BIG_FILE_UPLOADS_CHUNK_SIZE_KB * $kb
+		: 5 * $mb;
+
+	$chunk_size = max( $kb, min( $chunk_size, 5 * $mb ) );
+
+	return (int) apply_filters( 'uimptr_google_drive_download_chunk_size', $chunk_size );
+}
+
+/**
+ * Parse the total size from a Content-Range header.
+ *
+ * @param string $content_range Content-Range header value.
+ * @return int
+ */
+function uimptr_parse_content_range_total_size( $content_range ) {
+	if ( preg_match( '#/(\d+)\s*$#', (string) $content_range, $matches ) ) {
+		return (int) $matches[1];
+	}
+
+	return 0;
+}
+
+/**
+ * Download a Google Drive file in BFU-sized range chunks to the BFU temp dir.
+ *
+ * @param string $download_url Direct Google Drive download URL.
+ * @param string $source_url   Original source URL.
+ * @param array  $metadata     Optional import metadata.
+ * @return array|WP_Error
+ */
+function uimptr_download_google_drive_file_to_big_file_uploads_temp( $download_url, $source_url, $metadata = array() ) {
+	if ( function_exists( 'set_time_limit' ) ) {
+		@set_time_limit( 300 );
+	}
+
+	$temp_dir = uimptr_get_big_file_uploads_temp_dir();
+	$dir_ok   = uimptr_ensure_temp_directory( $temp_dir );
+	if ( is_wp_error( $dir_ok ) ) {
+		return $dir_ok;
+	}
+
+	$chunk_size = uimptr_get_big_file_uploads_download_chunk_size();
+	if ( $chunk_size <= 0 ) {
+		$chunk_size = 1048576;
+	}
+
+	$temp_file = trailingslashit( $temp_dir ) . sprintf(
+		'%d-%s.part',
+		function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1,
+		sha1( $download_url . microtime( true ) )
+	);
+
+	$handle = @fopen( $temp_file, 'wb' );
+	if ( false === $handle ) {
+		return new WP_Error( 'file_save_failed', 'Failed to open Big File Uploads temporary file.' );
+	}
+
+	$content_type        = '';
+	$content_disposition = '';
+	$total_size          = 0;
+	$offset              = 0;
+	$download_error      = null;
+
+	try {
+		do {
+			$range_end = $total_size > 0 ? min( $offset + $chunk_size - 1, $total_size - 1 ) : $offset + $chunk_size - 1;
+			$response  = wp_remote_get(
+				$download_url,
+				array(
+					'timeout'     => 60,
+					'redirection' => 5,
+					'headers'     => array(
+						'Range' => 'bytes=' . $offset . '-' . $range_end,
+					),
+					'user-agent'  => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . get_bloginfo( 'url' ),
+				)
+			);
+
+			if ( is_wp_error( $response ) ) {
+				$download_error = new WP_Error( 'image_download_failed', 'Failed to download Google Drive image chunk: ' . $response->get_error_message() );
+				break;
+			}
+
+			$response_code = wp_remote_retrieve_response_code( $response );
+			if ( ! in_array( $response_code, array( 200, 206 ), true ) ) {
+				$download_error = new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+				break;
+			}
+
+			$body = wp_remote_retrieve_body( $response );
+			if ( '' === $body ) {
+				$download_error = new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+				break;
+			}
+
+			if ( 0 === $offset ) {
+				$content_type        = (string) wp_remote_retrieve_header( $response, 'content-type' );
+				$content_disposition = (string) wp_remote_retrieve_header( $response, 'content-disposition' );
+
+				if ( uimptr_response_looks_like_html( $body, $content_type ) ) {
+					$download_error = new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+					break;
+				}
+
+				$total_size = uimptr_parse_content_range_total_size( (string) wp_remote_retrieve_header( $response, 'content-range' ) );
+				if ( 0 === $total_size && 200 === $response_code ) {
+					$total_size = strlen( $body );
+				}
+			}
+
+			$written = fwrite( $handle, $body );
+			if ( false === $written || $written !== strlen( $body ) ) {
+				$download_error = new WP_Error( 'file_save_failed', 'Failed to write Google Drive image chunk to Big File Uploads temporary file.' );
+				break;
+			}
+
+			$offset += strlen( $body );
+		} while ( $total_size > 0 && $offset < $total_size );
+	} finally {
+		fclose( $handle );
+	}
+
+	if ( is_wp_error( $download_error ) ) {
+		uimptr_delete_file_with_logging( $temp_file, 'failed Google Drive BFU chunk download cleanup' );
+		return $download_error;
+	}
+
+	clearstatcache( true, $temp_file );
+	if ( ! file_exists( $temp_file ) || filesize( $temp_file ) <= 0 ) {
+		uimptr_delete_file_with_logging( $temp_file, 'empty Google Drive BFU temp file cleanup' );
+		return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+	}
+
+	$filename_url_path = is_string( $source_url ) ? parse_url( $source_url, PHP_URL_PATH ) : false;
+	$filename          = $filename_url_path && is_string( $filename_url_path ) ? basename( $filename_url_path ) : '';
+	if ( empty( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) {
+		$header_filename = uimptr_get_filename_from_content_disposition( $content_disposition );
+		if ( ! empty( $header_filename ) ) {
+			$filename = $header_filename;
+		}
+	}
+
+	if ( ! $filename ) {
+		$filename = !empty($metadata['title']) ? sanitize_file_name( $metadata['title'] ) : 'imported_image_' . time();
+	}
+
+	return array(
+		'temp_file'           => $temp_file,
+		'filename'            => sanitize_file_name( $filename ),
+		'content_type'        => $content_type,
+		'content_disposition' => $content_disposition,
+	);
+}
+
+/**
+ * Build attachment post data shared by normal and Big File Uploads imports.
+ *
+ * @param string $title         Attachment title.
+ * @param string $description   Attachment description/caption.
+ * @param string $date          Optional source date.
+ * @param bool   $preserve_dates Whether to preserve source dates.
+ * @param string $mime_type     Attachment mime type.
+ * @return array
+ */
+function uimptr_build_attachment_post_data( $title, $description, $date, $preserve_dates, $mime_type ) {
+	$attachment = array(
+		'post_mime_type' => $mime_type,
+		'post_title'     => $title,
+		'post_name'      => uimptr_sanitize_attachment_slug_from_title( $title ),
+		'post_content'   => $description,
+		'post_excerpt'   => $description,
+		'post_status'    => 'inherit',
+	);
+
+	if ( $preserve_dates && $date ) {
+		$timestamp = strtotime( $date );
+		if ( false !== $timestamp ) {
+			$formatted_date              = date( 'Y-m-d H:i:s', $timestamp );
+			$attachment['post_date']     = $formatted_date;
+			$attachment['post_date_gmt'] = get_gmt_from_date( $formatted_date );
+		} else {
+			error_log( "URL Image Importer: Failed to parse date: {$date}" );
+		}
+	}
+
+	return $attachment;
+}
+
+/**
+ * Apply source URL, title/slug, and alt text metadata after attachment creation.
+ *
+ * @param int    $attachment_id Attachment ID.
+ * @param string $title         Attachment title.
+ * @param array  $metadata      Import metadata.
+ * @param string $image_url     Original source URL.
+ * @return void
+ */
+function uimptr_finalize_imported_attachment( $attachment_id, $title, $metadata, $image_url ) {
+	if ( is_wp_error( $attachment_id ) ) {
+		return;
+	}
+
+	uimptr_update_attachment_title_and_slug( $attachment_id, $title );
+
+	$normalized_source_url = uimptr_normalize_source_url( $image_url );
+	if ( '' !== $normalized_source_url ) {
+		update_post_meta( $attachment_id, '_uimptr_source_url', $normalized_source_url );
+	}
+
+	$alt_text = '';
+	if ( !empty($metadata['alt_text']) ) {
+		$alt_text = sanitize_text_field($metadata['alt_text']);
+	} elseif ( !empty($metadata['title']) ) {
+		$alt_text = $title;
+	}
+
+	if ( !empty($alt_text) ) {
+		update_post_meta( $attachment_id, '_wp_attachment_image_alt', $alt_text );
+	}
+}
+
+/**
+ * Hand a validated temp file to the same sideload path Big File Uploads uses.
+ *
+ * @param string $temp_file  Validated temp file path.
+ * @param string $filename   Final filename.
+ * @param array  $file_type  Validated file type array.
+ * @param array  $post_data  Attachment post data.
+ * @return int|WP_Error
+ */
+function uimptr_import_validated_file_with_big_file_uploads( $temp_file, $filename, array $file_type, array $post_data ) {
+	$previous_files = $_FILES;
+
+	clearstatcache( true, $temp_file );
+	$_FILES['async-upload'] = array(
+		'name'     => $filename,
+		'type'     => $file_type['type'],
+		'tmp_name' => $temp_file,
+		'error'    => UPLOAD_ERR_OK,
+		'size'     => file_exists( $temp_file ) ? filesize( $temp_file ) : 0,
+	);
+
+	try {
+		$attachment_id = media_handle_upload(
+			'async-upload',
+			0,
+			$post_data,
+			array(
+				'action'    => 'wp_handle_sideload',
+				'test_form' => false,
+			)
+		);
+	} finally {
+		$_FILES = $previous_files;
+	}
+
+	if ( is_wp_error( $attachment_id ) && file_exists( $temp_file ) ) {
+		uimptr_delete_file_with_logging( $temp_file, 'failed Big File Uploads sideload cleanup' );
+	}
+
+	return $attachment_id;
+}
+
+/**
  * Function to import the image from a URL
  *
  * @param url   $image_url       URL of the image to import.
@@ -2440,78 +2800,97 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 			return $download_url;
 		}
 	}
-	
-	$response = wp_remote_get( $download_url, array(
-		'timeout' => 30,
-		'redirection' => 5,
-		'user-agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . get_bloginfo( 'url' )
-	) );
-	
-	if ( is_wp_error( $response ) ) {
-		return new WP_Error( 'image_download_failed', 'Failed to download image: ' . $response->get_error_message() );
-	}
-
-	$response_code = wp_remote_retrieve_response_code( $response );
-	if ( $response_code !== 200 ) {
-		if ( $is_google_drive_source ) {
-			return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
-		}
-
-		return new WP_Error( 'image_download_failed', sprintf( 'Failed to download image. HTTP status: %d', $response_code ) );
-	}
-
-	$image_data = wp_remote_retrieve_body( $response );
-	
-	if ( empty( $image_data ) ) {
-		if ( $is_google_drive_source ) {
-			return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
-		}
-
-		return new WP_Error( 'invalid_image', 'No data received from URL.' );
-	}
-
-	$response_content_type = (string) wp_remote_retrieve_header( $response, 'content-type' );
-	$response_content_disposition = (string) wp_remote_retrieve_header( $response, 'content-disposition' );
-
-	if ( $is_google_drive_source && uimptr_response_looks_like_html( $image_data, $response_content_type ) ) {
-		return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
-	}
-
-	// Extract filename from URL
 	$upload_dir = wp_upload_dir();
 	$filename_url_path = is_string( $image_url ) ? parse_url( $image_url, PHP_URL_PATH ) : false;
 	$filename = '';
-	
-	if ( $filename_url_path && is_string( $filename_url_path ) ) {
-		$filename = basename( $filename_url_path );
-	}
+	$temp_file = '';
+	$response_content_type = '';
+	$response_content_disposition = '';
 
-	// Prefer a real filename from the HTTP response when the URL path has no extension.
-	if ( empty( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) {
-		$header_filename = uimptr_get_filename_from_content_disposition( $response_content_disposition );
-		if ( ! empty( $header_filename ) ) {
-			$filename = $header_filename;
+	if ( $is_google_drive_source && uimptr_can_use_big_file_uploads_sideload() ) {
+		$downloaded_file = uimptr_download_google_drive_file_to_big_file_uploads_temp( $download_url, $image_url, $metadata );
+		if ( is_wp_error( $downloaded_file ) ) {
+			return $downloaded_file;
+		}
+
+		$temp_file                    = $downloaded_file['temp_file'];
+		$filename                     = $downloaded_file['filename'];
+		$response_content_type        = $downloaded_file['content_type'];
+		$response_content_disposition = $downloaded_file['content_disposition'];
+	} else {
+		$response = wp_remote_get( $download_url, array(
+			'timeout' => 30,
+			'redirection' => 5,
+			'user-agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . get_bloginfo( 'url' )
+		) );
+
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'image_download_failed', 'Failed to download image: ' . $response->get_error_message() );
+		}
+
+		$response_code = wp_remote_retrieve_response_code( $response );
+		if ( $response_code !== 200 ) {
+			if ( $is_google_drive_source ) {
+				return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+			}
+
+			return new WP_Error( 'image_download_failed', sprintf( 'Failed to download image. HTTP status: %d', $response_code ) );
+		}
+
+		$image_data = wp_remote_retrieve_body( $response );
+
+		if ( empty( $image_data ) ) {
+			if ( $is_google_drive_source ) {
+				return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+			}
+
+			return new WP_Error( 'invalid_image', 'No data received from URL.' );
+		}
+
+		$response_content_type = (string) wp_remote_retrieve_header( $response, 'content-type' );
+		$response_content_disposition = (string) wp_remote_retrieve_header( $response, 'content-disposition' );
+
+		if ( $is_google_drive_source && uimptr_response_looks_like_html( $image_data, $response_content_type ) ) {
+			return new WP_Error( 'google_drive_not_public_image', 'Google Drive file is not publicly downloadable as an image.' );
+		}
+
+		if ( $filename_url_path && is_string( $filename_url_path ) ) {
+			$filename = basename( $filename_url_path );
+		}
+
+		// Prefer a real filename from the HTTP response when the URL path has no extension.
+		if ( empty( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) {
+			$header_filename = uimptr_get_filename_from_content_disposition( $response_content_disposition );
+			if ( ! empty( $header_filename ) ) {
+				$filename = $header_filename;
+			}
+		}
+
+		// Sanitize filename and ensure it has a base name
+		if ( ! $filename ) {
+			$filename = !empty($metadata['title']) ? sanitize_file_name( $metadata['title'] ) : 'imported_image_' . time();
+		}
+
+		// Sanitize the filename
+		$filename = sanitize_file_name( $filename );
+		$filename_base = pathinfo( $filename, PATHINFO_FILENAME );
+		if ( empty( $filename_base ) ) {
+			$filename_base = !empty($metadata['title']) ? sanitize_file_name( $metadata['title'] ) : 'imported_image_' . time();
+		}
+
+		// Create a temporary file first for validation
+		$temp_file = wp_tempnam( $filename );
+		$saved = file_put_contents( $temp_file, $image_data );
+
+		if ( $saved === false ) {
+			return new WP_Error( 'file_save_failed', 'Failed to save temporary file.' );
 		}
 	}
 
-	// Sanitize filename and ensure it has a base name
-	if ( ! $filename ) {
-		$filename = !empty($metadata['title']) ? sanitize_file_name( $metadata['title'] ) : 'imported_image_' . time();
-	}
-	
-	// Sanitize the filename
 	$filename = sanitize_file_name( $filename );
 	$filename_base = pathinfo( $filename, PATHINFO_FILENAME );
 	if ( empty( $filename_base ) ) {
 		$filename_base = !empty($metadata['title']) ? sanitize_file_name( $metadata['title'] ) : 'imported_image_' . time();
-	}
-	
-	// Create a temporary file first for validation
-	$temp_file = wp_tempnam( $filename );
-	$saved = file_put_contents( $temp_file, $image_data );
-	
-	if ( $saved === false ) {
-		return new WP_Error( 'file_save_failed', 'Failed to save temporary file.' );
 	}
 	
 	// SECURITY: Validate the actual file content using WordPress's image validation
@@ -2632,10 +3011,50 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 	}
 	$filename = $filename_base . '.' . $wp_filetype['ext'];
 	$filename = sanitize_file_name( $filename );
+
+	// Use the validated file type.
+	$file_type = array(
+		'ext'  => $wp_filetype['ext'],
+		'type' => $wp_filetype['type']
+	);
+
+	// Use provided metadata when available; otherwise mirror WordPress upload title behavior.
+	if ( !empty($metadata['title']) ) {
+		$title = sanitize_text_field( uimptr_maybe_strip_image_extension_from_title( $metadata['title'] ) );
+	} else {
+		$title_source = $filename;
+		$title_source_without_extension = pathinfo( $filename, PATHINFO_FILENAME );
+		if ( '' !== $title_source_without_extension ) {
+			$title_source = $title_source_without_extension;
+		}
+		$title = sanitize_file_name( $title_source );
+	}
+	$description = !empty($metadata['description']) ? sanitize_textarea_field($metadata['description']) : '';
+	$date = !empty($metadata['date']) ? $metadata['date'] : null;
+	$attachment = uimptr_build_attachment_post_data( $title, $description, $date, $preserve_dates, $file_type['type'] );
+
+	if ( uimptr_can_use_big_file_uploads_sideload() ) {
+		$attachment_id = uimptr_import_validated_file_with_big_file_uploads( $temp_file, $filename, $file_type, $attachment );
+		if ( ! is_wp_error( $attachment_id ) ) {
+			uimptr_finalize_imported_attachment( $attachment_id, $title, $metadata, $image_url );
+		}
+
+		return $attachment_id;
+	}
 	
 	// Generate unique filename to prevent overwrites
 	$filename = wp_unique_filename( $upload_dir['path'], $filename );
 	$file_path = $upload_dir['path'] . '/' . $filename;
+
+	if ( empty( $metadata['title'] ) ) {
+		$title_source = $filename;
+		$title_source_without_extension = pathinfo( $filename, PATHINFO_FILENAME );
+		if ( '' !== $title_source_without_extension ) {
+			$title_source = $title_source_without_extension;
+		}
+		$title      = sanitize_file_name( $title_source );
+		$attachment = uimptr_build_attachment_post_data( $title, $description, $date, $preserve_dates, $file_type['type'] );
+	}
 	
 	// Move the validated temp file to final location
 	// Use copy + unlink instead of rename for cross-filesystem compatibility (cloud storage)
@@ -2654,51 +3073,9 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		return new WP_Error( 'file_move_failed', 'Failed to move validated file to uploads directory.' );
 	}
 	
-	// Use the validated file type
-	$file_type = array(
-		'ext'  => $wp_filetype['ext'],
-		'type' => $wp_filetype['type']
-	);
-	
 	// Verify the file was actually saved and is readable
 	if ( ! file_exists( $file_path ) || ! is_readable( $file_path ) ) {
 		return new WP_Error( 'file_not_accessible', 'Saved file is not accessible.' );
-	}
-
-	// Use provided metadata when available; otherwise mirror WordPress upload title behavior.
-	if ( !empty($metadata['title']) ) {
-		$title = sanitize_text_field( uimptr_maybe_strip_image_extension_from_title( $metadata['title'] ) );
-	} else {
-		$title_source = $filename;
-		$title_source_without_extension = pathinfo( $filename, PATHINFO_FILENAME );
-		if ( '' !== $title_source_without_extension ) {
-			$title_source = $title_source_without_extension;
-		}
-		$title = sanitize_file_name( $title_source );
-	}
-	$description = !empty($metadata['description']) ? sanitize_textarea_field($metadata['description']) : '';
-	$date = !empty($metadata['date']) ? $metadata['date'] : null;
-
-	$attachment = array(
-		'post_mime_type' => $file_type['type'],
-		'post_title'     => $title,
-		'post_name'      => uimptr_sanitize_attachment_slug_from_title( $title ),
-		'post_content'   => $description,
-		'post_excerpt'   => $description, // This becomes the caption
-		'post_status'    => 'inherit',
-	);
-	
-	// Set the original date if available and preserve_dates is enabled
-	if ( $preserve_dates && $date ) {
-		// Handle various date formats from XML/CSV
-		$timestamp = strtotime( $date );
-		if ( $timestamp !== false ) {
-			$formatted_date = date( 'Y-m-d H:i:s', $timestamp );
-			$attachment['post_date'] = $formatted_date;
-			$attachment['post_date_gmt'] = get_gmt_from_date( $formatted_date );
-		} else {
-			error_log( "URL Image Importer: Failed to parse date: {$date}" );
-		}
 	}
 
 	$attachment_id = wp_insert_attachment( $attachment, $file_path );

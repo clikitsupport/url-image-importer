@@ -277,9 +277,11 @@ function uimptr_tests_reset_environment() {
 	);
 	$GLOBALS['uimptr_test_temp_dir']         = $temp_dir . '/';
 	$GLOBALS['uimptr_test_http_responses']   = array();
+	$GLOBALS['uimptr_test_http_callback']    = null;
 	$GLOBALS['uimptr_test_inserted_posts']   = array();
 	$GLOBALS['uimptr_test_post_meta']        = array();
 	$GLOBALS['uimptr_test_attachment_meta']  = array();
+	$GLOBALS['uimptr_test_media_handle_upload_calls'] = array();
 	$GLOBALS['uimptr_test_next_post_id']     = 1000;
 	$GLOBALS['uimptr_test_enqueued']         = array( 'styles' => array(), 'scripts' => array(), 'localized' => array() );
 	$GLOBALS['uimptr_test_redirect']         = null;
@@ -1018,6 +1020,58 @@ if ( ! function_exists( 'wp_update_attachment_metadata' ) ) {
 	function wp_update_attachment_metadata( $attachment_id, $data ) {
 		$GLOBALS['uimptr_test_attachment_meta'][ $attachment_id ] = $data;
 		return true;
+	}
+}
+
+if ( ! function_exists( 'media_handle_upload' ) ) {
+	function media_handle_upload( $file_id, $post_id = 0, $post_data = array(), $overrides = array() ) {
+		$GLOBALS['uimptr_test_media_handle_upload_calls'][] = compact( 'file_id', 'post_id', 'post_data', 'overrides' );
+
+		if ( empty( $_FILES[ $file_id ] ) || ! empty( $_FILES[ $file_id ]['error'] ) ) {
+			return new WP_Error( 'upload_error', 'No sideloaded file available.' );
+		}
+
+		$file = $_FILES[ $file_id ];
+		if ( empty( $file['tmp_name'] ) || ! is_readable( $file['tmp_name'] ) ) {
+			return new WP_Error( 'upload_error', 'Sideloaded file is not readable.' );
+		}
+
+		$upload_dir = wp_upload_dir();
+		$filename   = wp_unique_filename( $upload_dir['path'], $file['name'] );
+		$file_path  = trailingslashit( $upload_dir['path'] ) . $filename;
+
+		$moved = @rename( $file['tmp_name'], $file_path );
+		if ( ! $moved ) {
+			$moved = @copy( $file['tmp_name'], $file_path );
+			if ( $moved ) {
+				@unlink( $file['tmp_name'] );
+			}
+		}
+
+		if ( ! $moved ) {
+			return new WP_Error( 'upload_error', 'Failed to move sideloaded file.' );
+		}
+
+		$filetype = wp_check_filetype_and_ext( $file_path, $filename );
+		$attachment = array_merge(
+			array(
+				'post_mime_type' => $filetype['type'],
+				'post_title'     => pathinfo( $filename, PATHINFO_FILENAME ),
+				'post_content'   => '',
+				'post_status'    => 'inherit',
+			),
+			$post_data
+		);
+
+		$attachment_id = wp_insert_attachment( $attachment, $file_path, $post_id, true );
+		if ( is_wp_error( $attachment_id ) ) {
+			return $attachment_id;
+		}
+
+		$attach_data = wp_generate_attachment_metadata( $attachment_id, $file_path );
+		wp_update_attachment_metadata( $attachment_id, $attach_data );
+
+		return $attachment_id;
 	}
 }
 

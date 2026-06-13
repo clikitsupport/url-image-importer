@@ -39,6 +39,10 @@ class PluginClassTest extends WpTestCase {
 		$this->assertArrayHasKey( 'deactivate', $links );
 		$this->assertStringContainsString( 'upload.php?page=import-images-url', $links['settings'] );
 		$this->assertStringContainsString( 'utm_campaign=plugin_links', $links['upgrade'] );
+		$this->assertStringContainsString( 'https://infiniteuploads.com/', $links['upgrade'] );
+		$this->assertStringContainsString( 'Go Pro', $links['upgrade'] );
+		$this->assertStringNotContainsString( 'InfiniteUploads.com', $links['upgrade'] );
+		$this->assertStringNotContainsString( 'big-file-form-uploads', $links['upgrade'] );
 	}
 
 	public function test_ajax_stop_import_sets_stop_signal_and_stopped_progress(): void {

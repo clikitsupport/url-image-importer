@@ -298,6 +298,44 @@ input.bfu-input-subscribe {
   position: relative !important;
 }
 
+.media_page_import-images-url .notice {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.media_page_import-images-url .notice h1,
+.media_page_import-images-url .notice h2,
+.media_page_import-images-url .notice h3,
+.media_page_import-images-url .notice h4,
+.media_page_import-images-url .notice h5,
+.media_page_import-images-url .notice h6 {
+  color: #1d2327;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.media_page_import-images-url .notice h3 {
+  font-size: 1.3em;
+  margin: 1em 0;
+}
+
+.media_page_import-images-url .notice p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: .5em 0;
+}
+
+.media_page_import-images-url .notice .button {
+  font-size: 13px;
+  line-height: 2.15384615;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.media_page_import-images-url .notice .notice-dismiss {
+  padding: 9px;
+}
+
 /* Import Method Styling */
 .import-method {
   background: #fff;
