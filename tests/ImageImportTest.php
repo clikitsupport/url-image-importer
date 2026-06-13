@@ -75,6 +75,90 @@ class ImageImportTest extends WpTestCase {
 		$this->assertSame( 'hero-image.png', $GLOBALS['uimptr_test_attachment_meta'][ $attachment_id ]['file'] );
 	}
 
+	public function test_import_uses_big_file_uploads_sideload_path_when_available(): void {
+		$GLOBALS['uimptr_test_active_plugins']['tuxedo-big-file-uploads/tuxedo_big_file_uploads.php'] = true;
+
+		$url          = 'https://drive.google.com/file/d/big_drive_image_123/view?usp=sharing';
+		$download_url = \uimptr_get_google_drive_download_url( $url );
+		$this->mockHttpResponse(
+			$download_url,
+			$this->pngBytes(),
+			200,
+			array(
+				'content-type'        => 'image/png',
+				'content-disposition' => 'attachment; filename="Large Drive Image.png"',
+			)
+		);
+
+		$attachment_id = \uimptr_import_image_from_url( $url, null, array( 'title' => 'Large Drive Image.png' ) );
+		$post          = $GLOBALS['uimptr_test_inserted_posts'][ $attachment_id ];
+
+		$this->assertSame( 1001, $attachment_id );
+		$this->assertCount( 1, $GLOBALS['uimptr_test_media_handle_upload_calls'] );
+		$this->assertSame( 'async-upload', $GLOBALS['uimptr_test_media_handle_upload_calls'][0]['file_id'] );
+		$this->assertSame(
+			array(
+				'action'    => 'wp_handle_sideload',
+				'test_form' => false,
+			),
+			$GLOBALS['uimptr_test_media_handle_upload_calls'][0]['overrides']
+		);
+		$this->assertSame( 'Large-Drive-Image.png', basename( $post['file'] ) );
+		$this->assertSame( 'Large Drive Image', $post['post_title'] );
+		$this->assertSame(
+			'https://drive.google.com/file/d/big_drive_image_123/view',
+			$GLOBALS['uimptr_test_post_meta'][ $attachment_id ]['_uimptr_source_url']
+		);
+	}
+
+	public function test_google_drive_big_file_uploads_path_downloads_in_range_chunks(): void {
+		$GLOBALS['uimptr_test_active_plugins']['tuxedo-big-file-uploads/tuxedo_big_file_uploads.php'] = true;
+
+		$url          = 'https://drive.google.com/file/d/chunked_drive_image_123/view?usp=sharing';
+		$download_url = \uimptr_get_google_drive_download_url( $url );
+		$image        = $this->pngBytes() . str_repeat( 'a', 600 );
+		$ranges       = array();
+
+		\add_filter(
+			'uimptr_google_drive_download_chunk_size',
+			function() {
+				return 128;
+			}
+		);
+
+		$GLOBALS['uimptr_test_http_callback'] = function( $request_url, $args ) use ( $download_url, $image, &$ranges ) {
+			$this->assertSame( $download_url, $request_url );
+			$range = $args['headers']['Range'] ?? '';
+			$this->assertMatchesRegularExpression( '/^bytes=\d+-\d+$/', $range );
+
+			$ranges[] = $range;
+			preg_match( '/bytes=(\d+)-(\d+)/', $range, $matches );
+
+			$start = (int) $matches[1];
+			$end   = min( (int) $matches[2], strlen( $image ) - 1 );
+			$body  = substr( $image, $start, $end - $start + 1 );
+
+			return array(
+				'response' => array( 'code' => 206 ),
+				'headers'  => array(
+					'content-type'        => 'image/png',
+					'content-disposition' => 'attachment; filename="Chunked Drive Image.png"',
+					'content-range'       => sprintf( 'bytes %d-%d/%d', $start, $end, strlen( $image ) ),
+					'content-length'      => strlen( $body ),
+				),
+				'body'     => $body,
+			);
+		};
+
+		$attachment_id = \uimptr_import_image_from_url( $url );
+		$post          = $GLOBALS['uimptr_test_inserted_posts'][ $attachment_id ];
+
+		$this->assertGreaterThan( 1, count( $ranges ) );
+		$this->assertSame( 'bytes=0-127', $ranges[0] );
+		$this->assertSame( 'async-upload', $GLOBALS['uimptr_test_media_handle_upload_calls'][0]['file_id'] );
+		$this->assertSame( 'Chunked-Drive-Image.png', basename( $post['file'] ) );
+	}
+
 	public function test_import_infers_extensionless_png_from_content_type(): void {
 		$url = 'https://images.unsplash.com/photo-123';
 		$this->mockHttpResponse( $url, $this->pngBytes(), 200, array( 'content-type' => 'image/png' ) );

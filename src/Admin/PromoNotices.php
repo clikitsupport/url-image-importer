@@ -49,20 +49,19 @@ class PromoNotices {
 
     /**
      * Initialize promotional notices
-     * Note: These notices only show when Big File Uploads is NOT already active
      */
     public function init_notices() {
-        // Big File Form Uploads promotion - only shows if the user doesn't already have it
+        // Infinite Uploads promotion, matching the Big File Uploads upgrade path.
         $this->add_notice([
-            'id' => 'big_file_form_uploads_promo',
-            'title' => __('Complete Your File Management Setup', 'url-image-importer'),
-            'message' => __('You\'re importing images efficiently with URL Image Importer! Now add Big File Form Uploads to handle large file uploads from your website visitors - the perfect complement to your media workflow for better user experience.', 'url-image-importer'),
+            'id' => 'infinite_uploads_promo',
+            'title' => __('Want unlimited storage space?', 'url-image-importer'),
+            'message' => __('Move your media files to the Infinite Uploads cloud to save storage space, bandwidth, improve performance, and free you from hosting limits.', 'url-image-importer'),
             'type' => 'info',
             'buttons' => [
                 'primary' => [
-                    'text' => __('Learn More & Get Big File Form Uploads', 'url-image-importer'),
+                    'text' => __('Learn More About Infinite Uploads', 'url-image-importer'),
                     'action' => 'link',
-                    'link' => 'https://infiniteuploads.com/big-file-form-uploads/',
+                    'link' => self::get_upgrade_url( 'admin_notice' ),
                     'type' => 'primary'
                 ],
                 'maybe_later' => [
@@ -119,8 +118,11 @@ class PromoNotices {
             return;
         }
 
-        // Don't show promotional notices if Big File Uploads is already active
+        // Avoid duplicating the Big File Uploads promotion, and skip when Infinite Uploads is already active.
         if ( function_exists('is_plugin_active') && is_plugin_active('tuxedo-big-file-uploads/tuxedo_big_file_uploads.php') ) {
+            return;
+        }
+        if ( $this->is_infinite_uploads_active() ) {
             return;
         }
 
@@ -175,56 +177,29 @@ class PromoNotices {
                 <span class="screen-reader-text"><?php esc_html_e( 'Dismiss this notice', 'url-image-importer' ); ?></span>
             </button>
 
-            <div class="uimptr-notice-content">
-                <div class="uimptr-notice-icon">
-                    <span class="dashicons dashicons-upload" style="font-size: 24px; color: #0073aa;"></span>
-                </div>
-                <div class="uimptr-notice-text">
-                    <h3 style="margin-top: 0;"><?php echo esc_html( $notice['title'] ); ?></h3>
-                    <p><?php echo wp_kses_post( $notice['message'] ); ?></p>
+            <h3><?php echo esc_html( $notice['title'] ); ?></h3>
+            <p><?php echo wp_kses_post( $notice['message'] ); ?></p>
 
-                    <p class="uimptr-notice-actions">
-                        <?php foreach ( $notice['buttons'] as $type => $button ): ?>
-                            <?php if ( empty( $button ) || $type === 'dismiss' ) continue; ?>
-                            <?php
-                            $class = ( isset( $button['type'] ) && $button['type'] === 'primary' ) 
-                                ? 'button-primary' 
-                                : 'button-secondary';
-                            ?>
-                            <button type="button"
-                                    class="button <?php echo esc_attr( $class ); ?>"
-                                    data-action="<?php echo esc_attr( $button['action'] ); ?>"
-                                    <?php if ( ! empty( $button['link'] ) ): ?>
-                                    data-link="<?php echo esc_attr( $button['link'] ); ?>"
-                                    <?php endif; ?>
-                            >
-                                <?php echo esc_html( $button['text'] ); ?>
-                            </button>
-                        <?php endforeach; ?>
-                    </p>
-                </div>
-            </div>
+            <p class="uimptr-notice-actions">
+                <?php foreach ( $notice['buttons'] as $type => $button ): ?>
+                    <?php if ( empty( $button ) || $type === 'dismiss' ) continue; ?>
+                    <?php
+                    $class = ( isset( $button['type'] ) && $button['type'] === 'primary' )
+                        ? 'button-primary'
+                        : 'button-secondary';
+                    ?>
+                    <button type="button"
+                            class="button <?php echo esc_attr( $class ); ?>"
+                            data-action="<?php echo esc_attr( $button['action'] ); ?>"
+                            <?php if ( ! empty( $button['link'] ) ): ?>
+                            data-link="<?php echo esc_attr( $button['link'] ); ?>"
+                            <?php endif; ?>
+                    >
+                        <?php echo esc_html( $button['text'] ); ?>
+                    </button>
+                <?php endforeach; ?>
+            </p>
         </div>
-
-        <style>
-        .uimptr-notice-content {
-            display: flex;
-            align-items: flex-start;
-            gap: 15px;
-            padding-top: 12px;
-        }
-        .uimptr-notice-icon {
-            flex-shrink: 0;
-            margin-top: 5px;
-        }
-        .uimptr-notice-text {
-            flex-grow: 1;
-        }
-        .uimptr-notice-actions .button {
-            margin-right: 10px;
-            margin-bottom: 5px;
-        }
-        </style>
         <?php
     }
 
@@ -249,6 +224,19 @@ class PromoNotices {
             'ajaxurl' => admin_url( 'admin-ajax.php' ),
             'nonce'   => function_exists( '\uimptr_create_ajax_nonce' ) ? \uimptr_create_ajax_nonce() : wp_create_nonce( 'uimptr_ajax' ),
         ] );
+    }
+
+    /**
+     * Check whether Infinite Uploads is already active.
+     *
+     * @return bool
+     */
+    private function is_infinite_uploads_active() {
+        if ( function_exists( 'is_plugin_active' ) && is_plugin_active( 'infinite-uploads/infinite-uploads.php' ) ) {
+            return true;
+        }
+
+        return function_exists( 'infinite_uploads_init' ) || class_exists( 'Infinite_Uploads' );
     }
 
 	/**
@@ -316,7 +304,7 @@ class PromoNotices {
 				'utm_medium'   => 'plugin',
 				'utm_campaign' => sanitize_key( $source ),
 			),
-			'https://infiniteuploads.com/big-file-form-uploads/'
+			'https://infiniteuploads.com/'
 		);
 	}
 }

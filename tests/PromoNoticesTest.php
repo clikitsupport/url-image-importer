@@ -11,7 +11,8 @@ class PromoNoticesTest extends WpTestCase {
 		$url = PromoNotices::get_upgrade_url( 'Plugin Links!' );
 		parse_str( (string) parse_url( $url, PHP_URL_QUERY ), $query );
 
-		$this->assertStringStartsWith( 'https://infiniteuploads.com/big-file-form-uploads/', $url );
+		$this->assertStringStartsWith( 'https://infiniteuploads.com/', $url );
+		$this->assertStringNotContainsString( 'big-file-form-uploads', $url );
 		$this->assertSame( 'url_image_importer', $query['utm_source'] );
 		$this->assertSame( 'plugin', $query['utm_medium'] );
 		$this->assertSame( 'pluginlinks', $query['utm_campaign'] );
@@ -24,14 +25,18 @@ class PromoNoticesTest extends WpTestCase {
 		$notices->display_notices();
 		$html = ob_get_clean();
 
-		$this->assertStringContainsString( 'data-notice-id="big_file_form_uploads_promo"', $html );
-		$this->assertStringContainsString( 'Complete Your File Management Setup', $html );
+		$this->assertStringContainsString( 'data-notice-id="infinite_uploads_promo"', $html );
+		$this->assertStringContainsString( 'Want unlimited storage space?', $html );
+		$this->assertStringContainsString( 'Move your media files to the Infinite Uploads cloud', $html );
+		$this->assertStringNotContainsString( 'Big File Form Uploads', $html );
+		$this->assertStringNotContainsString( 'uimptr-notice-content', $html );
+		$this->assertStringNotContainsString( 'uimptr-notice-icon', $html );
 		$this->assertArrayHasKey( 'uimptr-promo-notices', $GLOBALS['uimptr_test_enqueued']['scripts'] );
 		$this->assertSame( 'nonce-uimptr_ajax', $GLOBALS['uimptr_test_enqueued']['localized']['uimptr-promo-notices']['uimptrPromo']['nonce'] );
 	}
 
 	public function test_display_notices_skips_when_user_dismissed_or_plugin_is_active(): void {
-		update_user_meta( 7, 'uimptr_notice_big_file_form_uploads_promo', 'dismissed' );
+		update_user_meta( 7, 'uimptr_notice_infinite_uploads_promo', 'dismissed' );
 		$notices = new PromoNotices();
 
 		ob_start();
@@ -46,31 +51,39 @@ class PromoNoticesTest extends WpTestCase {
 		$notices->display_notices();
 		$html = ob_get_clean();
 		$this->assertSame( '', trim( $html ) );
+
+		\uimptr_tests_reset_environment();
+		$GLOBALS['uimptr_test_active_plugins']['infinite-uploads/infinite-uploads.php'] = true;
+		$notices = new PromoNotices();
+		ob_start();
+		$notices->display_notices();
+		$html = ob_get_clean();
+		$this->assertSame( '', trim( $html ) );
 	}
 
 	public function test_handle_promo_action_records_delay_dismiss_and_link_actions(): void {
 		$notices = new PromoNotices();
 
-		$_POST['notice_id']   = 'big_file_form_uploads_promo';
+		$_POST['notice_id']   = 'infinite_uploads_promo';
 		$_POST['action_type'] = 'delay';
 		$this->callPromoActionExpectingSuccess( $notices );
-		$delay = $GLOBALS['uimptr_test_user_meta'][7]['uimptr_notice_big_file_form_uploads_promo'];
+		$delay = $GLOBALS['uimptr_test_user_meta'][7]['uimptr_notice_infinite_uploads_promo'];
 		$this->assertSame( 'delay', $delay['action'] );
 		$this->assertGreaterThan( time(), $delay['show_after'] );
 
 		$_POST['action_type'] = 'dismiss';
 		$this->callPromoActionExpectingSuccess( $notices );
-		$this->assertSame( 'dismissed', $GLOBALS['uimptr_test_user_meta'][7]['uimptr_notice_big_file_form_uploads_promo'] );
+		$this->assertSame( 'dismissed', $GLOBALS['uimptr_test_user_meta'][7]['uimptr_notice_infinite_uploads_promo'] );
 
 		$_POST['action_type'] = 'link';
 		$this->callPromoActionExpectingSuccess( $notices );
-		$this->assertSame( 'visited', $GLOBALS['uimptr_test_user_meta'][7]['uimptr_notice_big_file_form_uploads_promo'] );
+		$this->assertSame( 'visited', $GLOBALS['uimptr_test_user_meta'][7]['uimptr_notice_infinite_uploads_promo'] );
 	}
 
 	public function test_handle_promo_action_denies_users_without_manage_options(): void {
 		$GLOBALS['uimptr_test_current_user_can'] = false;
 		$notices = new PromoNotices();
-		$_POST['notice_id']   = 'big_file_form_uploads_promo';
+		$_POST['notice_id']   = 'infinite_uploads_promo';
 		$_POST['action_type'] = 'dismiss';
 
 		try {

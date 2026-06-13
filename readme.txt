@@ -3,7 +3,7 @@ Contributors: bww
 Tags: import image, image import, import image to media library, media library, csv import, xml import
 Requires at least: 5.3
 Tested up to: 7.0
-Stable tag: 1.2
+Stable tag: 1.2.1
 Requires PHP: 7.4
 License: GPLv2 or higher
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -129,6 +129,9 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 3. Submit the form. If successful, the image(s) will be added to the Media Library, and you’ll get a link to edit them.
 
 == Changelog ==
+
+= 1.2.1 - 06/13/2026 =
+- Improved ability to import large Google Drive images.
 
 = 1.2 - 05/27/2026 =
 - Added support for importing public Google Drive image file links from the URL importer and CSV importer.
