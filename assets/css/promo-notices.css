@@ -9,8 +9,11 @@
 
 .uimptr-notice.notice {
 	position: relative;
-	margin: 16px 20px 24px 0;
+	/* Full-bleed within .wrap (like the dashboard welcome panel) so the card
+	   never stops short of the content width on wide screens. */
+	margin: 16px 0 24px;
 	padding: 24px 52px 24px 28px;
+	box-sizing: border-box;
 	background: #ffffff;
 	border: 1px solid #e2e8f0;
 	border-left: 6px solid #26a9e0;
