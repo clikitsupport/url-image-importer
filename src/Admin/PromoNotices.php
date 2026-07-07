@@ -219,9 +219,23 @@ class PromoNotices {
             return;
         }
 
+        $plugin_root_url  = plugin_dir_url( dirname( dirname( __FILE__ ) ) );
+        $plugin_root_path = plugin_dir_path( dirname( dirname( __FILE__ ) ) );
+
+        // Branded card styling for the notice. Versioned by file mtime so CSS
+        // edits bust the browser cache even when the plugin version is unchanged.
+        $notice_css_path = $plugin_root_path . 'assets/css/promo-notices.css';
+        $notice_css_ver  = file_exists( $notice_css_path ) ? filemtime( $notice_css_path ) : UIMPTR_VERSION;
+        wp_enqueue_style(
+            'uimptr-promo-notice',
+            $plugin_root_url . 'assets/css/promo-notices.css',
+            [],
+            $notice_css_ver
+        );
+
         wp_enqueue_script(
             'uimptr-promo-notices',
-            plugin_dir_url( dirname( dirname( __FILE__ ) ) ) . 'assets/js/promo-notices.js',
+            $plugin_root_url . 'assets/js/promo-notices.js',
             [ 'jquery' ],
             UIMPTR_VERSION,
             true

@@ -46,6 +46,7 @@ class PromoNoticesTest extends WpTestCase {
 		$this->assertStringNotContainsString( 'uimptr-notice-content', $html );
 		$this->assertStringNotContainsString( 'uimptr-notice-icon', $html );
 		$this->assertArrayHasKey( 'uimptr-promo-notices', $GLOBALS['uimptr_test_enqueued']['scripts'] );
+		$this->assertArrayHasKey( 'uimptr-promo-notice', $GLOBALS['uimptr_test_enqueued']['styles'] );
 		$this->assertSame( 'nonce-uimptr_ajax', $GLOBALS['uimptr_test_enqueued']['localized']['uimptr-promo-notices']['uimptrPromo']['nonce'] );
 	}
 
