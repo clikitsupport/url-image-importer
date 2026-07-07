@@ -18,6 +18,16 @@ class PromoNoticesTest extends WpTestCase {
 		$this->assertSame( 'pluginlinks', $query['utm_campaign'] );
 	}
 
+	public function test_pricing_url_points_to_pricing_page_with_tracking(): void {
+		$url = PromoNotices::get_pricing_url( 'Admin Notice!' );
+		parse_str( (string) parse_url( $url, PHP_URL_QUERY ), $query );
+
+		$this->assertStringStartsWith( 'https://infiniteuploads.com/pricing/', $url );
+		$this->assertSame( 'url_image_importer', $query['utm_source'] );
+		$this->assertSame( 'plugin', $query['utm_medium'] );
+		$this->assertSame( 'adminnotice', $query['utm_campaign'] );
+	}
+
 	public function test_display_notices_renders_promo_and_enqueues_script_on_allowed_screen(): void {
 		$notices = new PromoNotices();
 
@@ -26,8 +36,12 @@ class PromoNoticesTest extends WpTestCase {
 		$html = ob_get_clean();
 
 		$this->assertStringContainsString( 'data-notice-id="infinite_uploads_promo"', $html );
-		$this->assertStringContainsString( 'Want unlimited storage space?', $html );
-		$this->assertStringContainsString( 'Move your media files to the Infinite Uploads cloud', $html );
+		$this->assertStringContainsString( 'Scale Your WordPress Media Library. Upgrade to Infinite Uploads', $html );
+		$this->assertStringContainsString( 'Infinite Uploads adds folders, smart organization, cloud storage, CDN delivery, and media scalability', $html );
+		$this->assertStringContainsString( 'Start 7 Day Free Trial', $html );
+		$this->assertStringContainsString( 'Try for Free', $html );
+		$this->assertStringContainsString( 'Remind Me Later', $html );
+		$this->assertStringContainsString( 'infiniteuploads.com/pricing/', $html );
 		$this->assertStringNotContainsString( 'Big File Form Uploads', $html );
 		$this->assertStringNotContainsString( 'uimptr-notice-content', $html );
 		$this->assertStringNotContainsString( 'uimptr-notice-icon', $html );

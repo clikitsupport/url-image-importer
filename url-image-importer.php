@@ -984,9 +984,9 @@ function uimptr_get_infinite_uploads_action() {
 /**
  * Render the Infinite Uploads Pro feature upsell grid.
  *
- * Shared markup displayed on each import tab (URL, XML, CSV). Clicking a feature
- * card opens a modal describing that feature with a branded "Install Infinite
- * Uploads" call to action.
+ * Rendered once per page, beneath the storage analysis section (not inside the
+ * import tabs). Clicking a feature card opens a modal describing that feature
+ * with a branded "Install Infinite Uploads" call to action.
  */
 function uimptr_render_upsell_bar() {
 	// Feather Icons (MIT) rendered inline so no extra assets are required.
@@ -1421,7 +1421,6 @@ function uimptr_import_images_url_page() {
 				</div>
 			</div>
 		</form>
-		<?php uimptr_render_upsell_bar(); ?>
 	</div>
 
 	<!-- XML Import Form -->
@@ -1497,7 +1496,6 @@ function uimptr_import_images_url_page() {
 				</div>
 			</div>
 		</form>
-		<?php uimptr_render_upsell_bar(); ?>
 	</div>
 
 	<!-- CSV Import Section -->
@@ -1584,7 +1582,6 @@ function uimptr_import_images_url_page() {
 				</div>
 			</div>
 		</form>
-		<?php uimptr_render_upsell_bar(); ?>
 	</div>
 
 	<!-- Import Preview Modal -->
@@ -2430,6 +2427,11 @@ function uimptr_import_images_url_page() {
 	} else {
 		require_once UIMPTR_PATH . '/templates/scan-start.php';
 	}
+
+	// Infinite Uploads Pro upsell: rendered once here, beneath the storage
+	// analysis section, instead of being repeated inside each import tab.
+	uimptr_render_upsell_bar();
+
 	require_once UIMPTR_PATH . '/templates/modal-upgrade.php';
 	require_once UIMPTR_PATH . '/templates/footer.php';
 }

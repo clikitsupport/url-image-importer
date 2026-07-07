@@ -52,20 +52,27 @@ class PromoNotices {
      */
     public function init_notices() {
         // Infinite Uploads promotion, matching the Big File Uploads upgrade path.
+        $pricing_url = self::get_pricing_url( 'admin_notice' );
+
         $this->add_notice([
             'id' => 'infinite_uploads_promo',
-            'title' => __('Want unlimited storage space?', 'url-image-importer'),
-            'message' => __('Move your media files to the Infinite Uploads cloud to save storage space, bandwidth, improve performance, and free you from hosting limits.', 'url-image-importer'),
+            'title' => __('Scale Your WordPress Media Library. Upgrade to Infinite Uploads', 'url-image-importer'),
+            'message' => sprintf(
+                /* translators: %1$s: opening link tag for the free-trial link, %2$s: closing link tag. */
+                __('Infinite Uploads adds folders, smart organization, cloud storage, CDN delivery, and media scalability - %1$sStart 7 Day Free Trial%2$s', 'url-image-importer'),
+                '<a href="' . esc_url( $pricing_url ) . '" target="_blank" rel="noopener noreferrer">',
+                '</a>'
+            ),
             'type' => 'info',
             'buttons' => [
                 'primary' => [
-                    'text' => __('Learn More About Infinite Uploads', 'url-image-importer'),
+                    'text' => __('Try for Free', 'url-image-importer'),
                     'action' => 'link',
-                    'link' => self::get_upgrade_url( 'admin_notice' ),
+                    'link' => $pricing_url,
                     'type' => 'primary'
                 ],
                 'maybe_later' => [
-                    'text' => __('Maybe Later', 'url-image-importer'),
+                    'text' => __('Remind Me Later', 'url-image-importer'),
                     'action' => 'delay',
                 ],
                 'dismiss' => [
@@ -305,6 +312,23 @@ class PromoNotices {
 				'utm_campaign' => sanitize_key( $source ),
 			),
 			'https://infiniteuploads.com/'
+		);
+	}
+
+	/**
+	 * Get the Infinite Uploads pricing page URL.
+	 *
+	 * @param string $source Source identifier for tracking.
+	 * @return string
+	 */
+	public static function get_pricing_url( $source = 'plugin' ) {
+		return add_query_arg(
+			array(
+				'utm_source'   => 'url_image_importer',
+				'utm_medium'   => 'plugin',
+				'utm_campaign' => sanitize_key( $source ),
+			),
+			'https://infiniteuploads.com/pricing/'
 		);
 	}
 }
