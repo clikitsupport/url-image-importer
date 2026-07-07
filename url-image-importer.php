@@ -814,7 +814,11 @@ add_action( 'admin_menu', function() {
 function uimptr_admin_styles() {
 	if ( isset( $_GET['page'] ) && 'import-images-url' === $_GET['page'] ) {
 		wp_enqueue_style( 'uimptr-bootstrap', plugins_url( 'assets/bootstrap/css/bootstrap.min.css', __FILE__ ), '', UIMPTR_VERSION );
-		wp_enqueue_style( 'uimptr-styles', plugins_url( 'assets/css/admin.css', __FILE__ ), '', UIMPTR_VERSION );
+		// Version admin.css by file mtime so CSS edits bust the browser cache
+		// even when the plugin version is unchanged.
+		$uimptr_admin_css     = plugin_dir_path( __FILE__ ) . 'assets/css/admin.css';
+		$uimptr_admin_css_ver = file_exists( $uimptr_admin_css ) ? filemtime( $uimptr_admin_css ) : UIMPTR_VERSION;
+		wp_enqueue_style( 'uimptr-styles', plugins_url( 'assets/css/admin.css', __FILE__ ), '', $uimptr_admin_css_ver );
 		wp_enqueue_script( 'uimptr-chartjs', plugins_url( 'assets/js/Chart.min.js', __FILE__ ), '', UIMPTR_VERSION, true );
 		wp_enqueue_script( 'bfu-bootstrap', plugins_url( 'assets/bootstrap/js/bootstrap.bundle.min.js', __FILE__ ), '', UIMPTR_VERSION, true );
 		wp_enqueue_script( 'uimptr-js', plugins_url( 'assets/js/admin.js', __FILE__ ), '', UIMPTR_VERSION, true );
@@ -1123,17 +1127,11 @@ function uimptr_render_upsell_bar() {
 			<p class="uimptr-feature-modal__subtitle" id="uimptr-feature-modal-subtitle"></p>
 			<div class="uimptr-feature-modal__actions">
 				<?php if ( $action ) : ?>
-					<a class="uimptr-feature-modal__cta" href="<?php echo esc_url( $action['url'] ); ?>"<?php echo $action['external'] ? ' target="_blank" rel="noopener noreferrer"' : ''; ?>>
-						<span class="uimptr-feature-modal__cta-logo" aria-hidden="true">
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-						</span>
+					<a class="btn text-nowrap btn-primary btn-lg" href="<?php echo esc_url( $action['url'] ); ?>" role="button"<?php echo $action['external'] ? ' target="_blank" rel="noopener noreferrer"' : ''; ?>>
 						<?php echo esc_html( $action['label'] ); ?>
 					</a>
 				<?php else : ?>
-					<a class="uimptr-feature-modal__cta" href="<?php echo esc_url( $learn_more ); ?>" target="_blank" rel="noopener noreferrer">
-						<span class="uimptr-feature-modal__cta-logo" aria-hidden="true">
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-						</span>
+					<a class="btn text-nowrap btn-primary btn-lg" href="<?php echo esc_url( $learn_more ); ?>" role="button" target="_blank" rel="noopener noreferrer">
 						<?php esc_html_e( 'Learn More About Infinite Uploads', 'url-image-importer' ); ?>
 					</a>
 				<?php endif; ?>
@@ -1173,7 +1171,7 @@ function uimptr_render_upsell_bar() {
 			modal.classList.add( 'is-open' );
 			modal.setAttribute( 'aria-hidden', 'false' );
 			document.body.classList.add( 'uimptr-modal-open' );
-			var cta = modal.querySelector( '.uimptr-feature-modal__cta' );
+			var cta = modal.querySelector( '.uimptr-feature-modal__actions .btn' );
 			if ( cta ) {
 				cta.focus();
 			}

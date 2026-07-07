@@ -138,7 +138,11 @@ class Plugin {
 		}
 
 		\wp_enqueue_style( 'uimptr-bootstrap', $this->plugin_url . 'assets/bootstrap/css/bootstrap.min.css', '', self::VERSION );
-		\wp_enqueue_style( 'uimptr-styles', $this->plugin_url . 'assets/css/admin.css', '', self::VERSION );
+		// Version admin.css by file mtime so CSS edits bust the browser cache
+		// even when the plugin version is unchanged.
+		$admin_css_path = $this->plugin_path . 'assets/css/admin.css';
+		$admin_css_ver  = \file_exists( $admin_css_path ) ? \filemtime( $admin_css_path ) : self::VERSION;
+		\wp_enqueue_style( 'uimptr-styles', $this->plugin_url . 'assets/css/admin.css', '', $admin_css_ver );
 		\wp_enqueue_script( 'uimptr-chartjs', $this->plugin_url . 'assets/js/Chart.min.js', '', self::VERSION, true );
 		\wp_enqueue_script( 'bfu-bootstrap', $this->plugin_url . 'assets/bootstrap/js/bootstrap.bundle.min.js', '', self::VERSION, true );
 		\wp_enqueue_script( 'uimptr-js', $this->plugin_url . 'assets/js/admin.js', '', self::VERSION, true );

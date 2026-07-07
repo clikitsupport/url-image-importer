@@ -1156,38 +1156,13 @@ body.uimptr-modal-open {
   justify-content: center;
 }
 
-.uimptr-feature-modal__cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 28px;
+/* The modal CTA reuses the classic Infinite Uploads button
+   (.btn.btn-primary.btn-lg) so it matches every other IU button. The
+   explicit radius keeps the rounded pill even though the modal is moved
+   out to <body>, where Bootstrap's .btn-lg could otherwise win. */
+.uimptr-feature-modal__actions .btn {
+  margin: 0;
   border-radius: 24px;
-  background: #26a9e0;
-  color: #ffffff !important;
-  font-size: 15px;
-  font-weight: 700;
-  text-decoration: none;
-  box-shadow: 0 8px 20px rgba(38, 169, 224, 0.3);
-  transition: background-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.uimptr-feature-modal__cta:hover,
-.uimptr-feature-modal__cta:focus {
-  background: #1c8fbf;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(38, 169, 224, 0.38);
-  outline: none;
-}
-
-.uimptr-feature-modal__cta-logo {
-  display: inline-flex;
-  line-height: 0;
-}
-
-.uimptr-feature-modal__cta-logo svg {
-  width: 18px;
-  height: 18px;
 }
 
 .uimptr-feature-modal__note {
