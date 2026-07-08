@@ -1229,81 +1229,10 @@ body.uimptr-modal-open {
   color: #5b6b7b;
 }
 
-.uimptr-scan__cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 13px 26px;
-  background: #26a9e0;
-  border: none;
-  border-radius: 10px;
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  box-shadow: 0 6px 16px rgba(38, 169, 224, 0.28);
-  transition: background-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-}
-
-.uimptr-scan__cta svg {
-  width: 20px;
-  height: 20px;
-}
-
-.uimptr-scan__cta:hover,
-.uimptr-scan__cta:focus {
-  background: #1c8fbf;
-  color: #ffffff;
-  box-shadow: 0 8px 20px rgba(38, 169, 224, 0.36);
-  transform: translateY(-1px);
-  outline: none;
-}
-
-.uimptr-scan__note {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 20px;
-  padding: 15px 18px;
-  max-width: 460px;
-  border: 1px dashed #bcdff0;
-  border-radius: 12px;
-  background: #f6fbfe;
-}
-
-.uimptr-scan__note-icon {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: #e6f5fc;
-  color: #26a9e0;
-}
-
-.uimptr-scan__note-icon svg {
-  width: 20px;
-  height: 20px;
-}
-
-.uimptr-scan__note-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.uimptr-scan__note-text strong {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1f2d3d;
-}
-
-.uimptr-scan__note-text span {
-  font-size: 13px;
-  color: #7c8a99;
+/* "Run Free Scan" reuses the classic Infinite Uploads button
+   (.btn.btn-primary.btn-lg) so it matches every other IU button. */
+.uimptr-scan__main .btn-primary {
+  margin: 0;
 }
 
 /* Right: feature points with divider */
@@ -1387,10 +1316,258 @@ body.uimptr-modal-open {
     margin-left: auto;
     margin-right: auto;
   }
-  .uimptr-scan__note {
-    text-align: left;
-  }
   .uimptr-scan__features {
     flex-direction: column;
+  }
+}
+
+/* ==========================================================================
+   Subscribe modal (shown after the free scan results) — Infinite Uploads brand
+   ========================================================================== */
+#subscribe-modal .modal-content.uimptr-subscribe {
+  position: relative;
+  border: none;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #f5f9ff 0%, #eef4fe 100%);
+  box-shadow: 0 24px 60px rgba(16, 24, 40, 0.22);
+  overflow: hidden;
+}
+
+#subscribe-modal .modal-body {
+  padding: 42px 48px 34px;
+}
+
+.uimptr-subscribe__close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #8a94a6;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.uimptr-subscribe__close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.uimptr-subscribe__close:hover,
+.uimptr-subscribe__close:focus {
+  color: #1f2d3d;
+  outline: none;
+}
+
+.uimptr-subscribe__title {
+  margin: 0 0 10px;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #1f2d3d;
+}
+
+.uimptr-subscribe__lead {
+  margin: 0 auto 24px;
+  max-width: 620px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #5b6b7b;
+}
+
+.uimptr-subscribe__responses {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.uimptr-subscribe__field {
+  position: relative;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.uimptr-subscribe__field-icon {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  transform: translateY(-50%);
+  display: flex;
+  color: #26a9e0;
+  pointer-events: none;
+}
+
+.uimptr-subscribe__field-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+#subscribe-modal #mce-EMAIL {
+  width: 100%;
+  height: 54px;
+  margin: 0;
+  padding: 0 18px 0 46px;
+  border: 1px solid #d5e3ef;
+  border-radius: 12px;
+  background: #ffffff;
+  font-size: 15px;
+  text-align: left;
+  color: #1f2d3d;
+  box-shadow: 0 2px 6px rgba(16, 24, 40, 0.05);
+}
+
+#subscribe-modal #mce-EMAIL:focus {
+  border-color: #26a9e0;
+  box-shadow: 0 0 0 3px rgba(38, 169, 224, 0.18);
+  outline: none;
+}
+
+.uimptr-subscribe__fine {
+  margin: 12px 0 22px;
+  text-align: center;
+  font-size: 13px;
+  color: #7c8a99;
+}
+
+.uimptr-subscribe__fine a {
+  color: #26a9e0;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.uimptr-subscribe__fine a:hover,
+.uimptr-subscribe__fine a:focus {
+  text-decoration: underline;
+}
+
+.uimptr-subscribe__actions {
+  text-align: center;
+}
+
+#subscribe-modal #bfu-subscribe-button {
+  min-width: 264px;
+}
+
+.uimptr-subscribe__skip {
+  margin: 16px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: #7c8a99;
+}
+
+.uimptr-subscribe__skip a {
+  color: #7c8a99;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.uimptr-subscribe__skip a:hover,
+.uimptr-subscribe__skip a:focus {
+  color: #26a9e0;
+  text-decoration: underline;
+}
+
+/* ==========================================================================
+   Scanning modal (scan in progress) — Infinite Uploads brand
+   ========================================================================== */
+#scan-modal .modal-content.uimptr-scanning {
+  position: relative;
+  border: none;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(16, 24, 40, 0.22);
+  overflow: hidden;
+}
+
+#scan-modal .modal-body {
+  padding: 48px 48px 44px;
+  text-align: center;
+}
+
+.uimptr-scanning__close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #8a94a6;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.uimptr-scanning__close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.uimptr-scanning__close:hover,
+.uimptr-scanning__close:focus {
+  color: #1f2d3d;
+  outline: none;
+}
+
+.uimptr-scanning__spinner {
+  width: 64px;
+  height: 64px;
+  margin: 4px auto 28px;
+  border-radius: 50%;
+  border: 5px solid #e3f3fb;
+  border-top-color: #26a9e0;
+  animation: uimptr-spin 0.9s linear infinite;
+}
+
+@keyframes uimptr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.uimptr-scanning__title {
+  margin: 0 0 12px;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #1f2d3d;
+}
+
+.uimptr-scanning__lead {
+  margin: 0 auto 26px;
+  max-width: 560px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #5b6b7b;
+}
+
+.uimptr-scanning__progress {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #7c8a99;
+}
+
+#scan-modal #bfu-scan-storage,
+#scan-modal #bfu-scan-files {
+  color: #26a9e0;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .uimptr-scanning__spinner {
+    animation-duration: 2.4s;
   }
 }

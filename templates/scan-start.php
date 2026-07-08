@@ -39,20 +39,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<h2 class="uimptr-scan__title"><?php esc_html_e( 'Analyze Your Storage Usage', 'url-image-importer' ); ?></h2>
 			<p class="uimptr-scan__lead"><?php esc_html_e( 'Run a free scan of your existing Media Library and get your report in seconds.', 'url-image-importer' ); ?></p>
 
-			<button type="button" class="uimptr-scan__cta" data-toggle="modal" data-target="#scan-modal">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-				<?php esc_html_e( 'Run Free Scan', 'url-image-importer' ); ?>
-			</button>
-
-			<div class="uimptr-scan__note">
-				<span class="uimptr-scan__note-icon" aria-hidden="true">
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-				</span>
-				<span class="uimptr-scan__note-text">
-					<strong><?php esc_html_e( 'Get your report in seconds', 'url-image-importer' ); ?></strong>
-					<span><?php esc_html_e( 'Fast scan. Instant results. No waiting.', 'url-image-importer' ); ?></span>
-				</span>
-			</div>
+			<button type="button" class="btn text-nowrap btn-primary btn-lg" data-toggle="modal" data-target="#scan-modal"><?php esc_html_e( 'Run Free Scan', 'url-image-importer' ); ?></button>
 		</div>
 
 		<div class="uimptr-scan__features">
