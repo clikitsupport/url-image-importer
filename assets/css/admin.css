@@ -1571,3 +1571,244 @@ body.uimptr-modal-open {
     animation-duration: 2.4s;
   }
 }
+
+/* ==========================================================================
+   Storage Usage Analysis (scan results) — Infinite Uploads brand
+   ========================================================================== */
+.uimptr-results-card {
+  margin-bottom: 24px;
+  border: 1px solid #e6eef4;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.05);
+}
+
+.uimptr-results__header {
+  padding: 20px 30px 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2d3d;
+}
+
+.uimptr-results {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  padding: 22px 32px 30px;
+}
+
+/* Left: ring with the total */
+.uimptr-results__visual {
+  flex: 0 0 auto;
+  width: 228px;
+  display: flex;
+  justify-content: center;
+}
+
+.uimptr-results__ring {
+  position: relative;
+  width: 212px;
+  height: 212px;
+}
+
+.uimptr-results__ring-track {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 8px 20px rgba(38, 169, 224, 0.10));
+}
+
+.uimptr-results__ring-inner {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.uimptr-results__ring-icon {
+  margin-bottom: 4px;
+  color: #4bb4e6;
+}
+
+.uimptr-results__ring-icon svg {
+  width: 34px;
+  height: 34px;
+}
+
+.uimptr-results__total {
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  color: #1f2d3d;
+}
+
+.uimptr-results__total small {
+  font-size: 17px;
+  font-weight: 700;
+  color: #9aa7b4;
+}
+
+.uimptr-results__total-label {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #7c8a99;
+}
+
+/* Right: meta + upgrade card */
+.uimptr-results__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.uimptr-results__meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.uimptr-results__scanned {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: #7c8a99;
+}
+
+.uimptr-results__scanned svg {
+  width: 15px;
+  height: 15px;
+}
+
+.uimptr-results__refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 15px;
+  border: 1px solid #bcdff0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #26a9e0;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.uimptr-results__refresh svg {
+  width: 15px;
+  height: 15px;
+}
+
+.uimptr-results__refresh:hover,
+.uimptr-results__refresh:focus {
+  background: #26a9e0;
+  border-color: #26a9e0;
+  color: #ffffff;
+  outline: none;
+}
+
+.uimptr-results__breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 460px;
+  margin-bottom: 20px;
+}
+
+.uimptr-results__type {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.uimptr-results__type-dot {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.uimptr-results__type-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #1f2d3d;
+}
+
+.uimptr-results__type-value {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: #1f2d3d;
+}
+
+.uimptr-results__upgrade {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 22px 26px;
+  border-radius: 14px;
+  background: #f3f8fd;
+}
+
+.uimptr-results__upgrade-icon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(16, 24, 40, 0.07);
+}
+
+.uimptr-results__upgrade-icon img {
+  width: 42px;
+  height: 42px;
+}
+
+.uimptr-results__upgrade-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.uimptr-results__upgrade-text h4 {
+  margin: 0 0 6px;
+  font-size: 19px;
+  font-weight: 800;
+  color: #1f2d3d;
+}
+
+.uimptr-results__upgrade-text p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #5b6b7b;
+}
+
+.uimptr-results__upgrade .btn-primary {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+@media (max-width: 960px) {
+  .uimptr-results {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .uimptr-results__visual {
+    width: 100%;
+  }
+  .uimptr-results__upgrade {
+    flex-direction: column;
+    text-align: center;
+  }
+}
