@@ -2404,7 +2404,6 @@ function uimptr_import_images_url_page() {
 	});
 	</script>
 	<?php
-	require_once UIMPTR_PATH . '/templates/scan-start.php';
 	require_once UIMPTR_PATH . '/templates/modal-subscribe.php';
 	require_once UIMPTR_PATH . '/templates/modal-scan.php';
 
