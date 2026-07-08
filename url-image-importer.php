@@ -821,7 +821,9 @@ function uimptr_admin_styles() {
 		wp_enqueue_style( 'uimptr-styles', plugins_url( 'assets/css/admin.css', __FILE__ ), '', $uimptr_admin_css_ver );
 		wp_enqueue_script( 'uimptr-chartjs', plugins_url( 'assets/js/Chart.min.js', __FILE__ ), '', UIMPTR_VERSION, true );
 		wp_enqueue_script( 'bfu-bootstrap', plugins_url( 'assets/bootstrap/js/bootstrap.bundle.min.js', __FILE__ ), '', UIMPTR_VERSION, true );
-		wp_enqueue_script( 'uimptr-js', plugins_url( 'assets/js/admin.js', __FILE__ ), '', UIMPTR_VERSION, true );
+		$uimptr_admin_js     = plugin_dir_path( __FILE__ ) . 'assets/js/admin.js';
+		$uimptr_admin_js_ver = file_exists( $uimptr_admin_js ) ? filemtime( $uimptr_admin_js ) : UIMPTR_VERSION;
+		wp_enqueue_script( 'uimptr-js', plugins_url( 'assets/js/admin.js', __FILE__ ), '', $uimptr_admin_js_ver, true );
 	}
 	$data                            = array();
 		$data['strings']             = array(
@@ -2404,9 +2406,10 @@ function uimptr_import_images_url_page() {
 	});
 	</script>
 	<?php
-	require_once UIMPTR_PATH . '/templates/modal-subscribe.php';
 	require_once UIMPTR_PATH . '/templates/modal-scan.php';
 
+	// Only include the subscribe modal until the user has subscribed or
+	// dismissed it, so re-running the scan does not ask for the email again.
 	$dismissed = get_user_option( 'bfu_subscribe_notice_dismissed', get_current_user_id() );
 	if ( ! $dismissed ) {
 		require_once UIMPTR_PATH . '/templates/modal-subscribe.php';
