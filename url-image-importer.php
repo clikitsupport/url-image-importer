@@ -940,59 +940,11 @@ function uimptr_parse_image_urls_input( $raw ) {
 }
 
 /**
- * Resolve the Infinite Uploads install / activate / configure action.
- *
- * Mirrors the logic in templates/modal-upgrade.php so the upsell surfaces the
- * same one-click flow the plugin already uses for Infinite Uploads (the cloud
- * offloading successor to Big File Uploads):
- *  - not installed  -> core plugin installer (install-plugin)
- *  - installed only -> activation link
- *  - active         -> Infinite Uploads settings screen
- *
- * @return array{url:string,label:string,external:bool}|null Null when the user
- *               cannot install plugins.
- */
-function uimptr_get_infinite_uploads_action() {
-	if ( ! current_user_can( 'install_plugins' ) ) {
-		return null;
-	}
-
-	if ( ! function_exists( 'get_plugins' ) ) {
-		require_once ABSPATH . 'wp-admin/includes/plugin.php';
-	}
-
-	$plugin_file       = 'infinite-uploads/infinite-uploads.php';
-	$installed_plugins = get_plugins();
-
-	if ( array_key_exists( $plugin_file, $installed_plugins ) ) {
-		if ( class_exists( 'Infinite_Uploads_Admin' ) ) {
-			return array(
-				'url'      => Infinite_Uploads_Admin::get_instance()->settings_url(),
-				'label'    => __( 'Configure Infinite Uploads', 'url-image-importer' ),
-				'external' => false,
-			);
-		}
-
-		return array(
-			'url'      => wp_nonce_url( 'plugins.php?action=activate&plugin=' . rawurlencode( $plugin_file ), 'activate-plugin_' . $plugin_file ),
-			'label'    => __( 'Activate Infinite Uploads', 'url-image-importer' ),
-			'external' => false,
-		);
-	}
-
-	return array(
-		'url'      => wp_nonce_url( self_admin_url( 'update.php?action=install-plugin&plugin=infinite-uploads' ), 'install-plugin_infinite-uploads' ),
-		'label'    => __( 'Install Infinite Uploads', 'url-image-importer' ),
-		'external' => false,
-	);
-}
-
-/**
  * Render the Infinite Uploads Pro feature upsell grid.
  *
  * Rendered once per page, beneath the storage analysis section (not inside the
  * import tabs). Clicking a feature card opens a modal describing that feature
- * with a branded "Install Infinite Uploads" call to action.
+ * with a "Try Infinite Uploads" call to action that opens the pricing page.
  */
 function uimptr_render_upsell_bar() {
 	// Feather Icons (MIT) rendered inline so no extra assets are required.
@@ -1044,10 +996,11 @@ function uimptr_render_upsell_bar() {
 	// Feather "lock" icon reused for every Pro badge.
 	$lock_icon = '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>';
 
-	$action     = uimptr_get_infinite_uploads_action();
-	$learn_more = class_exists( 'UrlImageImporter\\Admin\\PromoNotices' )
-		? UrlImageImporter\Admin\PromoNotices::get_upgrade_url( 'feature_modal' )
-		: 'https://infiniteuploads.com/';
+	// Promotional CTAs point at the pricing page so the visitor can choose a
+	// plan, rather than triggering the plugin install/activate flow.
+	$pricing_url = class_exists( 'UrlImageImporter\\Admin\\PromoNotices' )
+		? UrlImageImporter\Admin\PromoNotices::get_pricing_url( 'upsell_banner' )
+		: 'https://infiniteuploads.com/pricing/';
 
 	// Official Infinite Uploads brand marks (bundled with the plugin).
 	$iu_logo_mark = plugins_url( 'assets/img/iu-logo-blue.svg', __FILE__ );
@@ -1081,17 +1034,10 @@ function uimptr_render_upsell_bar() {
 		<span class="uimptr-cloud-banner__content">
 			<span class="uimptr-cloud-banner__title"><?php esc_html_e( 'You can move your storage to Cloud on Infinite Uploads', 'url-image-importer' ); ?></span>
 			<span class="uimptr-cloud-banner__subtitle"><?php esc_html_e( 'Try out Infinite Uploads for Free for 7 days and upload your storage to the cloud.', 'url-image-importer' ); ?></span>
-			<?php if ( $action ) : ?>
-				<a class="uimptr-cloud-banner__cta" href="<?php echo esc_url( $action['url'] ); ?>">
+				<a class="uimptr-cloud-banner__cta" href="<?php echo esc_url( $pricing_url ); ?>" target="_blank" rel="noopener noreferrer">
 					<?php esc_html_e( 'Start Free', 'url-image-importer' ); ?>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
 				</a>
-			<?php else : ?>
-				<a class="uimptr-cloud-banner__cta" href="<?php echo esc_url( $learn_more ); ?>" target="_blank" rel="noopener noreferrer">
-					<?php esc_html_e( 'Start Free', 'url-image-importer' ); ?>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-				</a>
-			<?php endif; ?>
 		</span>
 		<button type="button" class="uimptr-cloud-banner__dismiss" aria-label="<?php esc_attr_e( 'Dismiss', 'url-image-importer' ); ?>">
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1128,15 +1074,9 @@ function uimptr_render_upsell_bar() {
 			<h2 class="uimptr-feature-modal__heading" id="uimptr-feature-modal-heading"></h2>
 			<p class="uimptr-feature-modal__subtitle" id="uimptr-feature-modal-subtitle"></p>
 			<div class="uimptr-feature-modal__actions">
-				<?php if ( $action ) : ?>
-					<a class="btn text-nowrap btn-primary btn-lg" href="<?php echo esc_url( $action['url'] ); ?>" role="button"<?php echo $action['external'] ? ' target="_blank" rel="noopener noreferrer"' : ''; ?>>
-						<?php echo esc_html( $action['label'] ); ?>
-					</a>
-				<?php else : ?>
-					<a class="btn text-nowrap btn-primary btn-lg" href="<?php echo esc_url( $learn_more ); ?>" role="button" target="_blank" rel="noopener noreferrer">
-						<?php esc_html_e( 'Learn More About Infinite Uploads', 'url-image-importer' ); ?>
-					</a>
-				<?php endif; ?>
+				<a class="btn text-nowrap btn-primary btn-lg" href="<?php echo esc_url( $pricing_url ); ?>" role="button" target="_blank" rel="noopener noreferrer">
+					<?php esc_html_e( 'Try Infinite Uploads', 'url-image-importer' ); ?>
+				</a>
 			</div>
 			<p class="uimptr-feature-modal__note">
 				<?php

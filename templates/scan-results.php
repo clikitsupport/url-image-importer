@@ -9,7 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-$uimptr_iu_cloud = plugins_url( '/assets/img/iu-logo-blue.svg', dirname( __FILE__ ) );
+$uimptr_iu_cloud    = plugins_url( '/assets/img/iu-logo-blue.svg', dirname( __FILE__ ) );
+$uimptr_pricing_url = class_exists( 'UrlImageImporter\\Admin\\PromoNotices' )
+	? UrlImageImporter\Admin\PromoNotices::get_pricing_url( 'scan_results' )
+	: 'https://infiniteuploads.com/pricing/';
 ?>
 <div class="card uimptr-results-card">
 	<div class="uimptr-results__header"><?php esc_html_e( 'Storage Usage Analysis', 'url-image-importer' ); ?></div>
@@ -67,7 +70,7 @@ $uimptr_iu_cloud = plugins_url( '/assets/img/iu-logo-blue.svg', dirname( __FILE_
 					<h4><?php esc_html_e( 'Want unlimited storage space?', 'url-image-importer' ); ?></h4>
 					<p><?php esc_html_e( 'Move your media files to the Infinite Uploads cloud to save storage space, bandwidth, improve performance, and free you from hosting limits.', 'url-image-importer' ); ?></p>
 				</div>
-				<button type="button" class="btn text-nowrap btn-primary btn-lg" data-toggle="modal" data-target="#upgrade-modal"><?php esc_html_e( 'More Info', 'url-image-importer' ); ?></button>
+				<a class="btn text-nowrap btn-primary btn-lg" href="<?php echo esc_url( $uimptr_pricing_url ); ?>" target="_blank" rel="noopener noreferrer" role="button"><?php esc_html_e( 'More Info', 'url-image-importer' ); ?></a>
 			</div>
 		</div>
 
