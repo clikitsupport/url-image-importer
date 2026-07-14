@@ -46,6 +46,11 @@ jQuery(document).ready(function ($) {
                 backdrop: 'static',
                 keyboard: false
               });
+            } else {
+              // Already subscribed/dismissed: skip the email modal and just
+              // reload to show the fresh scan results.
+              $('.modal').modal('hide');
+              location.reload();
             }
           return true;
         }
@@ -87,7 +92,7 @@ jQuery(document).ready(function ($) {
       bfu_is_roles(this);
   });
 
-  $('#bfu-view-results').on('click', function () {
+  $('#bfu-view-results, #subscribe-modal .uimptr-subscribe__close').on('click', function () {
     $.post(ajaxurl, {
       action: 'uimptr_subscribe_dismiss',
       nonce: uimptr_ajax.nonce

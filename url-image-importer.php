@@ -814,10 +814,16 @@ add_action( 'admin_menu', function() {
 function uimptr_admin_styles() {
 	if ( isset( $_GET['page'] ) && 'import-images-url' === $_GET['page'] ) {
 		wp_enqueue_style( 'uimptr-bootstrap', plugins_url( 'assets/bootstrap/css/bootstrap.min.css', __FILE__ ), '', UIMPTR_VERSION );
-		wp_enqueue_style( 'uimptr-styles', plugins_url( 'assets/css/admin.css', __FILE__ ), '', UIMPTR_VERSION );
+		// Version admin.css by file mtime so CSS edits bust the browser cache
+		// even when the plugin version is unchanged.
+		$uimptr_admin_css     = plugin_dir_path( __FILE__ ) . 'assets/css/admin.css';
+		$uimptr_admin_css_ver = file_exists( $uimptr_admin_css ) ? filemtime( $uimptr_admin_css ) : UIMPTR_VERSION;
+		wp_enqueue_style( 'uimptr-styles', plugins_url( 'assets/css/admin.css', __FILE__ ), '', $uimptr_admin_css_ver );
 		wp_enqueue_script( 'uimptr-chartjs', plugins_url( 'assets/js/Chart.min.js', __FILE__ ), '', UIMPTR_VERSION, true );
 		wp_enqueue_script( 'bfu-bootstrap', plugins_url( 'assets/bootstrap/js/bootstrap.bundle.min.js', __FILE__ ), '', UIMPTR_VERSION, true );
-		wp_enqueue_script( 'uimptr-js', plugins_url( 'assets/js/admin.js', __FILE__ ), '', UIMPTR_VERSION, true );
+		$uimptr_admin_js     = plugin_dir_path( __FILE__ ) . 'assets/js/admin.js';
+		$uimptr_admin_js_ver = file_exists( $uimptr_admin_js ) ? filemtime( $uimptr_admin_js ) : UIMPTR_VERSION;
+		wp_enqueue_script( 'uimptr-js', plugins_url( 'assets/js/admin.js', __FILE__ ), '', $uimptr_admin_js_ver, true );
 	}
 	$data                            = array();
 		$data['strings']             = array(
@@ -931,6 +937,251 @@ function uimptr_parse_image_urls_input( $raw ) {
 	}
 
 	return array_values( array_filter( array_map( 'trim', $parts ), 'strlen' ) );
+}
+
+/**
+ * Render the Infinite Uploads Pro feature upsell grid.
+ *
+ * Rendered once per page, beneath the storage analysis section (not inside the
+ * import tabs). Clicking a feature card opens a modal describing that feature
+ * with a "Try Infinite Uploads" call to action that opens the pricing page.
+ */
+function uimptr_render_upsell_bar() {
+	// Feather Icons (MIT) rendered inline so no extra assets are required.
+	$features = array(
+		array(
+			'title'    => __( 'Folders', 'url-image-importer' ),
+			'desc'     => __( 'Organize your media files with folders.', 'url-image-importer' ),
+			'heading'  => __( 'Organize your media library with smart folders', 'url-image-importer' ),
+			'subtitle' => __( 'Try Infinite Uploads for free for 7 days and manage your media files with ease.', 'url-image-importer' ),
+			'icon'     => '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+		),
+		array(
+			'title'    => __( 'Smart Organization', 'url-image-importer' ),
+			'desc'     => __( 'Drag & drop media to keep your library organized.', 'url-image-importer' ),
+			'heading'  => __( 'Keep your media library effortlessly organized', 'url-image-importer' ),
+			'subtitle' => __( 'Try Infinite Uploads for free for 7 days and drag & drop your media into order.', 'url-image-importer' ),
+			'icon'     => '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+		),
+		array(
+			'title'    => __( 'Cloud Storage', 'url-image-importer' ),
+			'desc'     => __( 'Store your media securely in the cloud.', 'url-image-importer' ),
+			'heading'  => __( 'Offload your media to the cloud with Infinite Uploads', 'url-image-importer' ),
+			'subtitle' => __( 'Try Infinite Uploads for free for 7 days and reduce server load while improving performance.', 'url-image-importer' ),
+			'icon'     => '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>',
+		),
+		array(
+			'title'    => __( 'CDN Delivery', 'url-image-importer' ),
+			'desc'     => __( 'Deliver media via global CDN for faster sites.', 'url-image-importer' ),
+			'heading'  => __( 'Deliver your media faster worldwide with Global CDN', 'url-image-importer' ),
+			'subtitle' => __( 'Try Infinite Uploads for free for 7 days and serve your media through a global CDN.', 'url-image-importer' ),
+			'icon'     => '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+		),
+		array(
+			'title'    => __( 'Advanced Search', 'url-image-importer' ),
+			'desc'     => __( 'Find the right media instantly with advanced search.', 'url-image-importer' ),
+			'heading'  => __( 'Find any file instantly with advanced media search', 'url-image-importer' ),
+			'subtitle' => __( 'Try Infinite Uploads for free for 7 days and locate the right media in seconds.', 'url-image-importer' ),
+			'icon'     => '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+		),
+		array(
+			'title'    => __( 'Media Scalability', 'url-image-importer' ),
+			'desc'     => __( 'Handle unlimited growth without limits.', 'url-image-importer' ),
+			'heading'  => __( 'Scale your media storage without limits', 'url-image-importer' ),
+			'subtitle' => __( 'Try Infinite Uploads for free for 7 days and handle unlimited growth effortlessly.', 'url-image-importer' ),
+			'icon'     => '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+		),
+	);
+
+	// Feather "lock" icon reused for every Pro badge.
+	$lock_icon = '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>';
+
+	// Promotional CTAs point at the pricing page so the visitor can choose a
+	// plan, rather than triggering the plugin install/activate flow.
+	$pricing_url = class_exists( 'UrlImageImporter\\Admin\\PromoNotices' )
+		? UrlImageImporter\Admin\PromoNotices::get_pricing_url( 'upsell_banner' )
+		: 'https://infiniteuploads.com/pricing/';
+
+	// Official Infinite Uploads brand marks (bundled with the plugin).
+	$iu_logo_mark = plugins_url( 'assets/img/iu-logo-blue.svg', __FILE__ );
+	$iu_wordmark  = plugins_url( 'assets/img/iu-logo-words.svg', __FILE__ );
+	?>
+	<div class="uimptr-upsell-grid">
+		<?php foreach ( $features as $index => $feature ) : ?>
+			<button type="button" class="uimptr-upsell-card" data-uimptr-feature="<?php echo esc_attr( $index ); ?>" aria-haspopup="dialog">
+				<span class="uimptr-upsell-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><?php echo $feature['icon']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static inline SVG path markup. ?></svg>
+				</span>
+				<span class="uimptr-upsell-text">
+					<span class="uimptr-upsell-title"><?php echo esc_html( $feature['title'] ); ?></span>
+					<span class="uimptr-upsell-desc"><?php echo esc_html( $feature['desc'] ); ?></span>
+				</span>
+				<span class="uimptr-upsell-badge">
+					<?php esc_html_e( 'Pro', 'url-image-importer' ); ?>
+					<svg class="uimptr-upsell-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><?php echo $lock_icon; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static inline SVG path markup. ?></svg>
+				</span>
+			</button>
+		<?php endforeach; ?>
+	</div>
+
+	<div class="uimptr-cloud-banner">
+		<span class="uimptr-cloud-banner__badge" aria-hidden="true">
+			<img src="<?php echo esc_url( $iu_logo_mark ); ?>" alt="" width="38" height="29" />
+		</span>
+		<span class="uimptr-cloud-banner__art" aria-hidden="true">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/></svg>
+		</span>
+		<span class="uimptr-cloud-banner__content">
+			<span class="uimptr-cloud-banner__title"><?php esc_html_e( 'You can move your storage to Cloud on Infinite Uploads', 'url-image-importer' ); ?></span>
+			<span class="uimptr-cloud-banner__subtitle"><?php esc_html_e( 'Try out Infinite Uploads for Free for 7 days and upload your storage to the cloud.', 'url-image-importer' ); ?></span>
+				<a class="uimptr-cloud-banner__cta" href="<?php echo esc_url( $pricing_url ); ?>" target="_blank" rel="noopener noreferrer">
+					<?php esc_html_e( 'Start Free', 'url-image-importer' ); ?>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+				</a>
+		</span>
+		<button type="button" class="uimptr-cloud-banner__dismiss" aria-label="<?php esc_attr_e( 'Dismiss', 'url-image-importer' ); ?>">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+		</button>
+	</div>
+	<?php
+	// The feature modal, dismiss handler and click wiring only need to exist once,
+	// even though this helper renders on all three import tabs.
+	static $singletons_printed = false;
+	if ( $singletons_printed ) {
+		return;
+	}
+	$singletons_printed = true;
+
+	// Feature data for the modal, keyed by the card index. Only presentational
+	// text and the icon differ per feature; the install action is shared.
+	$modal_features = array();
+	foreach ( $features as $index => $feature ) {
+		$modal_features[ $index ] = array(
+			'heading'  => $feature['heading'],
+			'subtitle' => $feature['subtitle'],
+			'icon'     => $feature['icon'],
+		);
+	}
+	?>
+	<div class="uimptr-feature-modal" id="uimptr-feature-modal" aria-hidden="true">
+		<div class="uimptr-feature-modal__overlay" data-uimptr-close></div>
+		<div class="uimptr-feature-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="uimptr-feature-modal-heading">
+			<button type="button" class="uimptr-feature-modal__close" data-uimptr-close aria-label="<?php esc_attr_e( 'Close', 'url-image-importer' ); ?>">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+			</button>
+			<img class="uimptr-feature-modal__brand" src="<?php echo esc_url( $iu_wordmark ); ?>" alt="Infinite Uploads" width="132" height="33" />
+			<span class="uimptr-feature-modal__icon" id="uimptr-feature-modal-icon" aria-hidden="true"></span>
+			<h2 class="uimptr-feature-modal__heading" id="uimptr-feature-modal-heading"></h2>
+			<p class="uimptr-feature-modal__subtitle" id="uimptr-feature-modal-subtitle"></p>
+			<div class="uimptr-feature-modal__actions">
+				<a class="btn text-nowrap btn-primary btn-lg" href="<?php echo esc_url( $pricing_url ); ?>" role="button" target="_blank" rel="noopener noreferrer">
+					<?php esc_html_e( 'Try Infinite Uploads', 'url-image-importer' ); ?>
+				</a>
+			</div>
+			<p class="uimptr-feature-modal__note">
+				<?php
+					// translators: %s is a cloud icon.
+					printf( esc_html__( 'Get 7 days of %s storage, bandwidth, media folders, and more for FREE. Plans starting at just $8.25/mo.', 'url-image-importer' ), '<span class="dashicons dashicons-cloud" aria-hidden="true"></span>' );
+				?>
+			</p>
+		</div>
+	</div>
+	<script>
+	( function () {
+		var FEATURES = <?php echo wp_json_encode( $modal_features ); ?>;
+
+		var modal      = document.getElementById( 'uimptr-feature-modal' );
+		var iconEl     = document.getElementById( 'uimptr-feature-modal-icon' );
+		var headingEl  = document.getElementById( 'uimptr-feature-modal-heading' );
+		var subtitleEl = document.getElementById( 'uimptr-feature-modal-subtitle' );
+		var lastFocus  = null;
+
+		// The modal is printed inside the first import tab; move it to <body> so
+		// hiding that tab (display:none) never hides the fixed-position modal.
+		if ( modal && modal.parentNode !== document.body ) {
+			document.body.appendChild( modal );
+		}
+
+		function openModal( key ) {
+			var data = FEATURES[ key ];
+			if ( ! data || ! modal ) {
+				return;
+			}
+			iconEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + data.icon + '</svg>';
+			headingEl.textContent  = data.heading;
+			subtitleEl.textContent = data.subtitle;
+			modal.classList.add( 'is-open' );
+			modal.setAttribute( 'aria-hidden', 'false' );
+			document.body.classList.add( 'uimptr-modal-open' );
+			var cta = modal.querySelector( '.uimptr-feature-modal__actions .btn' );
+			if ( cta ) {
+				cta.focus();
+			}
+		}
+
+		function closeModal() {
+			if ( ! modal ) {
+				return;
+			}
+			modal.classList.remove( 'is-open' );
+			modal.setAttribute( 'aria-hidden', 'true' );
+			document.body.classList.remove( 'uimptr-modal-open' );
+			if ( lastFocus && lastFocus.focus ) {
+				lastFocus.focus();
+			}
+		}
+
+		// Cloud banner dismissal (persisted per browser).
+		var BANNER_KEY = 'uimptrCloudBannerDismissed';
+		function hideBanners() {
+			var banners = document.querySelectorAll( '.uimptr-cloud-banner' );
+			for ( var i = 0; i < banners.length; i++ ) {
+				banners[ i ].style.display = 'none';
+			}
+		}
+		try {
+			if ( window.localStorage && localStorage.getItem( BANNER_KEY ) === '1' ) {
+				hideBanners();
+			}
+		} catch ( err ) {}
+
+		document.addEventListener( 'click', function ( e ) {
+			if ( ! e.target.closest ) {
+				return;
+			}
+
+			var card = e.target.closest( '[data-uimptr-feature]' );
+			if ( card ) {
+				e.preventDefault();
+				lastFocus = card;
+				openModal( card.getAttribute( 'data-uimptr-feature' ) );
+				return;
+			}
+
+			if ( e.target.closest( '[data-uimptr-close]' ) ) {
+				e.preventDefault();
+				closeModal();
+				return;
+			}
+
+			if ( e.target.closest( '.uimptr-cloud-banner__dismiss' ) ) {
+				try {
+					if ( window.localStorage ) {
+						localStorage.setItem( BANNER_KEY, '1' );
+					}
+				} catch ( err ) {}
+				hideBanners();
+			}
+		} );
+
+		document.addEventListener( 'keydown', function ( e ) {
+			if ( e.key === 'Escape' && modal && modal.classList.contains( 'is-open' ) ) {
+				closeModal();
+			}
+		} );
+	} )();
+	</script>
+	<?php
 }
 
 /**
@@ -2095,10 +2346,10 @@ function uimptr_import_images_url_page() {
 	});
 	</script>
 	<?php
-	require_once UIMPTR_PATH . '/templates/scan-start.php';
-	require_once UIMPTR_PATH . '/templates/modal-subscribe.php';
 	require_once UIMPTR_PATH . '/templates/modal-scan.php';
 
+	// Only include the subscribe modal until the user has subscribed or
+	// dismissed it, so re-running the scan does not ask for the email again.
 	$dismissed = get_user_option( 'bfu_subscribe_notice_dismissed', get_current_user_id() );
 	if ( ! $dismissed ) {
 		require_once UIMPTR_PATH . '/templates/modal-subscribe.php';
@@ -2116,6 +2367,11 @@ function uimptr_import_images_url_page() {
 	} else {
 		require_once UIMPTR_PATH . '/templates/scan-start.php';
 	}
+
+	// Infinite Uploads Pro upsell: rendered once here, beneath the storage
+	// analysis section, instead of being repeated inside each import tab.
+	uimptr_render_upsell_bar();
+
 	require_once UIMPTR_PATH . '/templates/modal-upgrade.php';
 	require_once UIMPTR_PATH . '/templates/footer.php';
 }
