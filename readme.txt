@@ -1,14 +1,14 @@
-=== URL Image Importer ===
+=== URL Image Importer – Import External Images to the Media Library from URL, CSV & XML ===
 Contributors: bww
-Tags: import image, image import, import image to media library, media library, csv import, xml import
+Tags: media library, image import, csv import, images, upload
 Requires at least: 5.3
 Tested up to: 7.0
-Stable tag: 1.2.1
+Stable tag: 1.2.2
 Requires PHP: 7.4
 License: GPLv2 or higher
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Import images from URLs, CSV files, or WordPress XML exports directly into your WordPress Media Library to use across your entire site!
+Import external images into your WordPress Media Library from any URL, CSV, XML export, or Google Drive link. Bulk import, site migration ready.
 
 == Description ==
 
@@ -129,6 +129,13 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 3. Submit the form. If successful, the image(s) will be added to the Media Library, and you’ll get a link to edit them.
 
 == Changelog ==
+
+= 1.2.2 - 07/13/2026 =
+- Redesigned the storage analysis tool with a cleaner, more modern layout — run a free scan of your Media Library to see total usage and a breakdown by file type.
+- Refined the importer screens for a more polished, consistent interface.
+- Fixed: the storage analysis could display two panels at once after a scan finished.
+- Fixed: re-running a scan no longer re-prompts for your email once you've dismissed it.
+- Fixed: some buttons could lose their rounded corners after being clicked.
 
 = 1.2.1 - 06/13/2026 =
 - Improved ability to import large Google Drive images.
