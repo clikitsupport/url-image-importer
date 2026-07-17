@@ -22,7 +22,13 @@ $upload_dir = wp_upload_dir();
 define( 'UIMPTR_PATH', plugin_dir_path( __FILE__ ) );
 define( 'UIMPTR_VERSION', '1.2.2' );
 
-define( 'UPLOADBLOGSDIR', $upload_dir['basedir'] );  // Use basedir for root uploads folder, not path (current month)
+// Guard against redefinition. On multisite, WordPress core already defines UPLOADBLOGSDIR
+// (see ms_upload_constants()), and other plugins may define it too; a second unguarded
+// define() throws a "Constant UPLOADBLOGSDIR already defined" warning on every request,
+// cron run, and background task. Defer to any existing definition.
+if ( ! defined( 'UPLOADBLOGSDIR' ) ) {
+	define( 'UPLOADBLOGSDIR', $upload_dir['basedir'] );  // Use basedir for root uploads folder, not path (current month)
+}
 define( 'UIMPTR_AJAX_NONCE_ACTION', 'uimptr_ajax' );
 define( 'UIMPTR_AJAX_NONCE_FIELD', 'nonce' );
 
