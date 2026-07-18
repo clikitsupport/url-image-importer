@@ -94,9 +94,9 @@ Yes, in the URL importer and CSV importer, if the Google Drive link points direc
 
 Yes! You can upload a WordPress XML export file, and the importer will detect all image attachments and import them into your Media Library.
 
-= Can I choose how attachment titles and slugs are generated? =
+= How are attachment titles and slugs generated for imported images? =
 
-Yes. The import screen includes a checked option to use filenames without extensions for attachment titles and slugs, matching WordPress uploads. Uncheck it before importing to keep the previous full-filename behavior.
+Imported images automatically use the filename without its extension as the attachment title and slug — for example, sunset.jpg becomes the title "sunset" — matching how WordPress names files you upload manually. This applies to every URL, CSV, and WordPress XML import and happens automatically; there is no checkbox to enable or disable.
 
 = Can videos (mp4) be uploaded? =
 
