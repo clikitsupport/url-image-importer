@@ -3,14 +3,14 @@
  *
  * Plugin Name: URL Image Importer
  * Description: A plugin to import multiple images into the WordPress Media Library from URLs.
- * Version: 1.2.2
+ * Version: 1.2.3
  * Author: Infinite Uploads
  * Author URI: https://infiniteuploads.com
  * Text Domain: url-image-importer
  * License: GPL2
  *
  * @package UrlImageImporter
- * @version 1.2.2
+ * @version 1.2.3
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -20,9 +20,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 $upload_dir = wp_upload_dir();
 
 define( 'UIMPTR_PATH', plugin_dir_path( __FILE__ ) );
-define( 'UIMPTR_VERSION', '1.2.2' );
+define( 'UIMPTR_VERSION', '1.2.3' );
 
-define( 'UPLOADBLOGSDIR', $upload_dir['basedir'] );  // Use basedir for root uploads folder, not path (current month)
+// Guard against redefinition. On multisite, WordPress core already defines UPLOADBLOGSDIR
+// (see ms_upload_constants()), and other plugins may define it too; a second unguarded
+// define() throws a "Constant UPLOADBLOGSDIR already defined" warning on every request,
+// cron run, and background task. Defer to any existing definition.
+if ( ! defined( 'UPLOADBLOGSDIR' ) ) {
+	define( 'UPLOADBLOGSDIR', $upload_dir['basedir'] );  // Use basedir for root uploads folder, not path (current month)
+}
 define( 'UIMPTR_AJAX_NONCE_ACTION', 'uimptr_ajax' );
 define( 'UIMPTR_AJAX_NONCE_FIELD', 'nonce' );
 
@@ -2796,6 +2802,13 @@ function uimptr_parse_content_range_total_size( $content_range ) {
  * @return array|WP_Error
  */
 function uimptr_download_google_drive_file_to_big_file_uploads_temp( $download_url, $source_url, $metadata = array() ) {
+	// SECURITY (SSRF): validate the resolved download target before opening any
+	// handles or issuing chunk requests. Defense in depth alongside wp_safe_remote_get().
+	$safe = uimptr_validate_remote_url_is_safe( $download_url );
+	if ( is_wp_error( $safe ) ) {
+		return $safe;
+	}
+
 	if ( function_exists( 'set_time_limit' ) ) {
 		@set_time_limit( 300 );
 	}
@@ -2831,7 +2844,9 @@ function uimptr_download_google_drive_file_to_big_file_uploads_temp( $download_u
 	try {
 		do {
 			$range_end = $total_size > 0 ? min( $offset + $chunk_size - 1, $total_size - 1 ) : $offset + $chunk_size - 1;
-			$response  = wp_remote_get(
+			// SECURITY (SSRF): $download_url was vetted by uimptr_validate_remote_url_is_safe()
+			// at the top of this function; wp_safe_remote_get() adds core's per-hop RFC1918 guard.
+			$response  = wp_safe_remote_get(
 				$download_url,
 				array(
 					'timeout'     => 60,
@@ -3029,6 +3044,166 @@ function uimptr_import_validated_file_with_big_file_uploads( $temp_file, $filena
 }
 
 /**
+ * Determine whether an IP address is one a user-supplied image URL must never reach.
+ *
+ * SSRF guard. Blocks loopback, RFC1918 private, link-local (including the
+ * 169.254.169.254 cloud metadata endpoint), carrier-grade NAT, and other
+ * reserved ranges for both IPv4 and IPv6. WordPress core's own
+ * wp_http_validate_url() does not cover the link-local or CGNAT ranges, which is
+ * why this explicit check is required in addition to wp_safe_remote_get().
+ *
+ * @param string $ip IP address.
+ * @return bool True when the IP is in a blocked range.
+ */
+function uimptr_ip_is_blocked( $ip ) {
+	// Rejects private (10/8, 172.16/12, 192.168/16, fc00::/7) and reserved
+	// (0/8, 127/8, 169.254/16, ::1, fe80::/10, ...) ranges in one pass.
+	if ( false === filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) {
+		return true;
+	}
+
+	// filter_var() does not treat carrier-grade NAT (100.64.0.0/10) as reserved.
+	if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
+		$long = ip2long( $ip );
+		if ( false !== $long && $long >= ip2long( '100.64.0.0' ) && $long <= ip2long( '100.127.255.255' ) ) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Resolve a hostname to the IP addresses a request to it could reach.
+ *
+ * Filterable via `uimptr_resolve_host_ips` so tests (and advanced site owners)
+ * can override resolution. IP literals are returned as-is.
+ *
+ * @param string $host Hostname or IP literal (without IPv6 brackets).
+ * @return string[] Resolved IP addresses; empty array when resolution fails.
+ */
+function uimptr_resolve_host_ips( $host ) {
+	$filtered = apply_filters( 'uimptr_resolve_host_ips', null, $host );
+	if ( is_array( $filtered ) ) {
+		return $filtered;
+	}
+
+	// An IP literal needs no DNS resolution.
+	if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
+		return array( $host );
+	}
+
+	$ips = array();
+
+	$v4 = gethostbynamel( $host );
+	if ( is_array( $v4 ) ) {
+		$ips = array_merge( $ips, $v4 );
+	}
+
+	if ( function_exists( 'dns_get_record' ) ) {
+		$aaaa = @dns_get_record( $host, DNS_AAAA );
+		if ( is_array( $aaaa ) ) {
+			foreach ( $aaaa as $record ) {
+				if ( ! empty( $record['ipv6'] ) ) {
+					$ips[] = $record['ipv6'];
+				}
+			}
+		}
+	}
+
+	return array_values( array_unique( $ips ) );
+}
+
+/**
+ * Validate that a URL is safe to fetch (SSRF guard).
+ *
+ * Requires an http(s) scheme, resolves the host, and rejects the request when
+ * the host resolves to any internal/reserved address. Fails closed: an
+ * unresolvable host is treated as unsafe.
+ *
+ * @param string $url URL to validate.
+ * @return true|WP_Error True when safe, WP_Error otherwise.
+ */
+function uimptr_validate_remote_url_is_safe( $url ) {
+	if ( ! is_string( $url ) || '' === $url ) {
+		return new WP_Error( 'ssrf_blocked_url', 'The provided URL is not valid.' );
+	}
+
+	$parts = function_exists( 'wp_parse_url' ) ? wp_parse_url( $url ) : parse_url( $url );
+	if ( empty( $parts['scheme'] ) || ! in_array( strtolower( $parts['scheme'] ), array( 'http', 'https' ), true ) ) {
+		return new WP_Error( 'ssrf_blocked_url', 'Only http and https URLs can be imported.' );
+	}
+	if ( empty( $parts['host'] ) ) {
+		return new WP_Error( 'ssrf_blocked_url', 'The provided URL has no host.' );
+	}
+
+	$host = trim( $parts['host'], '[]' ); // Strip IPv6 brackets, e.g. [::1].
+	$ips  = uimptr_resolve_host_ips( $host );
+
+	if ( empty( $ips ) ) {
+		// Fail closed: never fetch a host we cannot resolve and vet.
+		return new WP_Error( 'ssrf_blocked_url', 'The URL host could not be resolved.' );
+	}
+
+	foreach ( $ips as $ip ) {
+		if ( uimptr_ip_is_blocked( $ip ) ) {
+			return new WP_Error( 'ssrf_blocked_url', 'Refusing to fetch a URL that resolves to an internal or reserved address.' );
+		}
+	}
+
+	return true;
+}
+
+/**
+ * SSRF-safe replacement for wp_safe_remote_get() for user-supplied URLs.
+ *
+ * Validates the initial target and every redirect hop against internal/reserved
+ * IP ranges before each request. Redirects are followed manually (rather than by
+ * the HTTP client) so each Location can be re-validated, closing the link-local
+ * and CGNAT gap that WordPress core's redirect validation leaves open.
+ *
+ * @param string $url  URL to fetch.
+ * @param array  $args wp_remote_get() args. 'redirection' caps the hop count (default 5).
+ * @return array|WP_Error Response array on success, WP_Error otherwise.
+ */
+function uimptr_ssrf_safe_remote_get( $url, $args = array() ) {
+	$max_redirects       = isset( $args['redirection'] ) ? (int) $args['redirection'] : 5;
+	$args['redirection'] = 0; // Follow redirects ourselves so each hop is validated.
+
+	$current = $url;
+
+	for ( $hop = 0; $hop <= $max_redirects; $hop++ ) {
+		$safe = uimptr_validate_remote_url_is_safe( $current );
+		if ( is_wp_error( $safe ) ) {
+			return $safe;
+		}
+
+		$response = wp_safe_remote_get( $current, $args );
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( ! in_array( $code, array( 301, 302, 303, 307, 308 ), true ) ) {
+			return $response; // Not a redirect: final response.
+		}
+
+		$location = (string) wp_remote_retrieve_header( $response, 'location' );
+		if ( '' === $location ) {
+			return $response; // Redirect without a target; hand back untouched.
+		}
+
+		if ( class_exists( 'WP_Http' ) && method_exists( 'WP_Http', 'make_absolute_url' ) ) {
+			$current = WP_Http::make_absolute_url( $location, $current );
+		} else {
+			$current = $location;
+		}
+	}
+
+	return new WP_Error( 'http_request_failed', 'Too many redirects.' );
+}
+
+/**
  * Function to import the image from a URL
  *
  * @param url   $image_url       URL of the image to import.
@@ -3074,7 +3249,12 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 		$response_content_type        = $downloaded_file['content_type'];
 		$response_content_disposition = $downloaded_file['content_disposition'];
 	} else {
-		$response = wp_remote_get( $download_url, array(
+		// SECURITY (SSRF): The target URL is user-supplied (upload_files capability). Fetch it
+		// through uimptr_ssrf_safe_remote_get(), which validates the URL and every redirect hop
+		// against internal/private/loopback/link-local/reserved ranges (127.0.0.1, RFC1918, the
+		// 169.254.169.254 cloud metadata endpoint, etc.) before each request. wp_safe_remote_get()
+		// alone is insufficient: WordPress core's validation does not cover the link-local range.
+		$response = uimptr_ssrf_safe_remote_get( $download_url, array(
 			'timeout' => 30,
 			'redirection' => 5,
 			'user-agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . get_bloginfo( 'url' )

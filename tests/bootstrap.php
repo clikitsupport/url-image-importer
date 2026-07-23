@@ -278,6 +278,25 @@ function uimptr_tests_reset_environment() {
 	$GLOBALS['uimptr_test_temp_dir']         = $temp_dir . '/';
 	$GLOBALS['uimptr_test_http_responses']   = array();
 	$GLOBALS['uimptr_test_http_callback']    = null;
+	$GLOBALS['uimptr_test_safe_remote_get_calls'] = array();
+	// Host => array of IPs for the SSRF resolver. Unmapped non-IP hosts resolve to
+	// a public TEST-NET address so ordinary import tests are not blocked.
+	$GLOBALS['uimptr_test_host_ips']         = array();
+	add_filter(
+		'uimptr_resolve_host_ips',
+		function( $pre, $host ) {
+			// Let the plugin handle IP literals itself.
+			if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
+				return $pre;
+			}
+			if ( isset( $GLOBALS['uimptr_test_host_ips'][ $host ] ) ) {
+				return $GLOBALS['uimptr_test_host_ips'][ $host ];
+			}
+			return array( '203.0.113.10' ); // TEST-NET-3: a routable, non-reserved default.
+		},
+		10,
+		2
+	);
 	$GLOBALS['uimptr_test_inserted_posts']   = array();
 	$GLOBALS['uimptr_test_post_meta']        = array();
 	$GLOBALS['uimptr_test_attachment_meta']  = array();
@@ -1206,6 +1225,8 @@ if ( ! function_exists( 'wp_max_upload_size' ) ) {
 
 if ( ! function_exists( 'wp_safe_remote_get' ) ) {
 	function wp_safe_remote_get( $url, $args = array() ) {
+		// Record safe-fetch usage so tests can assert the SSRF-protected variant is used.
+		$GLOBALS['uimptr_test_safe_remote_get_calls'][] = $url;
 		return wp_remote_get( $url, $args );
 	}
 }

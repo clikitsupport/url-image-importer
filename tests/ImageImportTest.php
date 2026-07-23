@@ -75,6 +75,98 @@ class ImageImportTest extends WpTestCase {
 		$this->assertSame( 'hero-image.png', $GLOBALS['uimptr_test_attachment_meta'][ $attachment_id ]['file'] );
 	}
 
+	public function test_import_fetches_over_ssrf_safe_http_client(): void {
+		// Regression guard for the SSRF fix: the user-supplied URL must be fetched with
+		// wp_safe_remote_get() (reject_unsafe_urls), never the unprotected wp_remote_get().
+		$url = 'https://cdn.example.test/photo.png';
+		$this->mockHttpResponse( $url, $this->pngBytes(), 200, array( 'content-type' => 'image/png' ) );
+
+		\uimptr_import_image_from_url( $url );
+
+		$this->assertContains( $url, $GLOBALS['uimptr_test_safe_remote_get_calls'] );
+	}
+
+	public function test_google_drive_chunked_download_uses_ssrf_safe_http_client(): void {
+		$GLOBALS['uimptr_test_active_plugins']['tuxedo-big-file-uploads/tuxedo_big_file_uploads.php'] = true;
+
+		$url          = 'https://drive.google.com/file/d/safe_drive_image_123/view?usp=sharing';
+		$download_url = \uimptr_get_google_drive_download_url( $url );
+		$this->mockHttpResponse(
+			$download_url,
+			$this->pngBytes(),
+			200,
+			array(
+				'content-type'        => 'image/png',
+				'content-disposition' => 'attachment; filename="Drive Image.png"',
+			)
+		);
+
+		\uimptr_import_image_from_url( $url, null, array( 'title' => 'Drive Image.png' ) );
+
+		$this->assertContains( $download_url, $GLOBALS['uimptr_test_safe_remote_get_calls'] );
+	}
+
+	public function test_ip_is_blocked_covers_internal_and_reserved_ranges(): void {
+		$blocked = array( '169.254.169.254', '127.0.0.1', '10.0.0.5', '172.16.0.1', '192.168.1.1', '100.64.0.1', '0.0.0.0', '::1', 'fe80::1', 'fc00::1' );
+		foreach ( $blocked as $ip ) {
+			$this->assertTrue( \uimptr_ip_is_blocked( $ip ), "$ip should be blocked" );
+		}
+
+		$allowed = array( '8.8.8.8', '203.0.113.10', '1.1.1.1', '2606:4700:4700::1111' );
+		foreach ( $allowed as $ip ) {
+			$this->assertFalse( \uimptr_ip_is_blocked( $ip ), "$ip should be allowed" );
+		}
+	}
+
+	public function test_validate_remote_url_blocks_link_local_metadata_endpoint(): void {
+		// The headline PoC vector. wp_safe_remote_get() alone does not catch this.
+		$result = \uimptr_validate_remote_url_is_safe( 'http://169.254.169.254/latest/meta-data/' );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'ssrf_blocked_url', $result->get_error_code() );
+	}
+
+	public function test_validate_remote_url_rejects_non_http_schemes_and_unresolvable_hosts(): void {
+		$this->assertInstanceOf( WP_Error::class, \uimptr_validate_remote_url_is_safe( 'file:///etc/passwd' ) );
+		$this->assertInstanceOf( WP_Error::class, \uimptr_validate_remote_url_is_safe( 'ftp://example.test/x' ) );
+
+		// Fail closed when a host cannot be resolved.
+		$GLOBALS['uimptr_test_host_ips']['unresolvable.example.test'] = array();
+		$this->assertInstanceOf( WP_Error::class, \uimptr_validate_remote_url_is_safe( 'http://unresolvable.example.test/x.png' ) );
+	}
+
+	public function test_validate_remote_url_allows_public_hosts(): void {
+		$GLOBALS['uimptr_test_host_ips']['cdn.example.test'] = array( '203.0.113.10' );
+		$this->assertTrue( \uimptr_validate_remote_url_is_safe( 'https://cdn.example.test/photo.png' ) );
+	}
+
+	public function test_import_blocks_url_resolving_to_internal_ip(): void {
+		// A public-looking hostname that (maliciously) resolves to the metadata endpoint.
+		$GLOBALS['uimptr_test_host_ips']['metadata.example.test'] = array( '169.254.169.254' );
+
+		$result = \uimptr_import_image_from_url( 'https://metadata.example.test/logo.png' );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertStringContainsString( 'internal or reserved', $result->get_error_message() );
+		$this->assertNotContains( 'https://metadata.example.test/logo.png', $GLOBALS['uimptr_test_safe_remote_get_calls'] );
+	}
+
+	public function test_import_blocks_redirect_hop_to_internal_ip(): void {
+		// Public entry point that 302-redirects to an internal target: each hop is re-validated.
+		$this->mockHttpResponse(
+			'https://redirector.example.test/go.png',
+			'',
+			302,
+			array( 'location' => 'http://internal.example.test/latest/meta-data/' )
+		);
+		$GLOBALS['uimptr_test_host_ips']['redirector.example.test'] = array( '203.0.113.10' );
+		$GLOBALS['uimptr_test_host_ips']['internal.example.test']   = array( '169.254.169.254' );
+
+		$result = \uimptr_import_image_from_url( 'https://redirector.example.test/go.png' );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertStringContainsString( 'internal or reserved', $result->get_error_message() );
+	}
+
 	public function test_import_uses_big_file_uploads_sideload_path_when_available(): void {
 		$GLOBALS['uimptr_test_active_plugins']['tuxedo-big-file-uploads/tuxedo_big_file_uploads.php'] = true;
 

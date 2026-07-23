@@ -3,7 +3,7 @@ Contributors: bww
 Tags: media library, image import, csv import, images, upload
 Requires at least: 5.3
 Tested up to: 7.0
-Stable tag: 1.2.2
+Stable tag: 1.2.3
 Requires PHP: 7.4
 License: GPLv2 or higher
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -94,9 +94,9 @@ Yes, in the URL importer and CSV importer, if the Google Drive link points direc
 
 Yes! You can upload a WordPress XML export file, and the importer will detect all image attachments and import them into your Media Library.
 
-= Can I choose how attachment titles and slugs are generated? =
+= How are attachment titles and slugs generated for imported images? =
 
-Yes. The import screen includes a checked option to use filenames without extensions for attachment titles and slugs, matching WordPress uploads. Uncheck it before importing to keep the previous full-filename behavior.
+Imported images automatically use the filename without its extension as the attachment title and slug — for example, sunset.jpg becomes the title "sunset" — matching how WordPress names files you upload manually. This applies to every URL, CSV, and WordPress XML import and happens automatically; there is no checkbox to enable or disable.
 
 = Can videos (mp4) be uploaded? =
 
@@ -114,6 +114,10 @@ Yes.
 
 No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an optional service to offload your media files to the cloud and make your WordPress website storage infinitely scalable. Perfect for sites that need to store many large file uploads.
 
+= How do I report a security vulnerability? =
+
+You can report security bugs through the Wordfence Vulnerability Disclosure Program. The Wordfence team helps validate, triage, and handle any security vulnerabilities. [Report a vulnerability](https://www.wordfence.com/threat-intel/vulnerabilities/wordpress-plugins/url-image-importer/submit).
+
 == Screenshots ==
 
 1. URL import tab for adding images directly from public links.
@@ -129,6 +133,10 @@ No. [Infinite Uploads](https://wordpress.org/plugins/infinite-uploads/) is an op
 3. Submit the form. If successful, the image(s) will be added to the Media Library, and you’ll get a link to edit them.
 
 == Changelog ==
+
+= 1.2.3 - 07/23/2026 =
+- Security: hardened the URL, CSV, XML, and Google Drive image importers against Server-Side Request Forgery (SSRF). Remote images are now fetched through WordPress's safe HTTP client together with an explicit host check that rejects any URL resolving to an internal, private, loopback, link-local, or reserved address (including the 169.254.169.254 cloud metadata endpoint), re-validated on every redirect hop. Thanks to Pierre Rudloff for the responsible disclosure.
+- Fixed: a "Constant UPLOADBLOGSDIR already defined" PHP warning that could appear on WordPress Multisite, or alongside other plugins that define the same constant.
 
 = 1.2.2 - 07/13/2026 =
 - Redesigned the storage analysis tool with a cleaner, more modern layout — run a free scan of your Media Library to see total usage and a breakdown by file type.
