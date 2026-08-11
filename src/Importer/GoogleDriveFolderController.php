@@ -93,6 +93,34 @@ class GoogleDriveFolderController {
 	}
 
 	/**
+	 * Explain when scheduled checks actually run on this site.
+	 *
+	 * WordPress fires scheduled events on site activity rather than on a real
+	 * clock, so the chosen interval is a floor, not a guarantee. When WP-Cron is
+	 * disabled outright the site depends entirely on a server cron job, which is
+	 * worth saying plainly -- otherwise a folder that never syncs looks like a
+	 * broken feature.
+	 *
+	 * @return array {
+	 *     @type string $text  Message for the user.
+	 *     @type bool   $warn  Whether this needs attention rather than context.
+	 * }
+	 */
+	public static function get_schedule_note() {
+		if ( defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON ) {
+			return array(
+				'text' => __( "WordPress' built-in scheduler is disabled on this site, so these checks only run if a server cron job is set up to trigger them. If new images never appear on their own, ask your host whether WordPress cron is being run. You can always use Check now.", 'url-image-importer' ),
+				'warn' => true,
+			);
+		}
+
+		return array(
+			'text' => __( 'WordPress runs scheduled checks when someone visits your site, so on a quiet site a check can happen later than the interval you pick. Use Check now any time you want images straight away.', 'url-image-importer' ),
+			'warn' => false,
+		);
+	}
+
+	/**
 	 * Schedule the sync only when there is something to sync.
 	 *
 	 * @return void
@@ -434,6 +462,13 @@ class GoogleDriveFolderController {
 							</select>
 							<p class="description">
 								<?php esc_html_e( 'Applies to every watched folder, and saves as soon as you change it.', 'url-image-importer' ); ?>
+							</p>
+							<?php $schedule_note = self::get_schedule_note(); ?>
+							<p class="description"<?php echo $schedule_note['warn'] ? ' style="color:#996800;"' : ''; ?>>
+								<?php if ( $schedule_note['warn'] ) : ?>
+									<strong><?php esc_html_e( 'Heads up:', 'url-image-importer' ); ?></strong>
+								<?php endif; ?>
+								<?php echo esc_html( $schedule_note['text'] ); ?>
 							</p>
 						</td>
 					</tr>
