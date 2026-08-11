@@ -2659,6 +2659,98 @@ function uimptr_get_google_drive_canonical_url( $url ) {
 }
 
 /**
+ * Whether a URL is a Dropbox share link.
+ *
+ * @param string $url URL to test.
+ * @return bool
+ */
+function uimptr_is_dropbox_url( $url ) {
+	if ( ! is_string( $url ) || '' === trim( $url ) ) {
+		return false;
+	}
+
+	$host = wp_parse_url( trim( $url ), PHP_URL_HOST );
+
+	if ( ! $host ) {
+		return false;
+	}
+
+	$host = strtolower( $host );
+
+	return 'dropbox.com' === $host
+		|| 'www.dropbox.com' === $host
+		|| 'dl.dropboxusercontent.com' === $host
+		|| 'www.dropboxusercontent.com' === $host;
+}
+
+/**
+ * Whether a Dropbox URL points at a folder rather than a single file.
+ *
+ * Folder links use the /scl/fo/ prefix, files use /scl/fi/ or the legacy /s/.
+ *
+ * @param string $url Dropbox URL.
+ * @return bool
+ */
+function uimptr_is_dropbox_folder_url( $url ) {
+	$path = (string) wp_parse_url( (string) $url, PHP_URL_PATH );
+
+	return (bool) preg_match( '#^/(?:scl/fo|sh)/#i', $path );
+}
+
+/**
+ * Resolve a Dropbox share URL to a direct-download URL.
+ *
+ * Dropbox serves the share URL as a preview page unless it is asked for the
+ * raw file. `raw=1` is preferred over `dl=1` because it returns the real image
+ * content type rather than a generic binary one.
+ *
+ * @param string $url Dropbox share URL.
+ * @return string|WP_Error
+ */
+function uimptr_get_dropbox_download_url( $url ) {
+	$url = trim( (string) $url );
+
+	if ( ! uimptr_is_dropbox_url( $url ) ) {
+		return new WP_Error( 'dropbox_invalid_url', 'Not a Dropbox share link.' );
+	}
+
+	if ( uimptr_is_dropbox_folder_url( $url ) ) {
+		return new WP_Error(
+			'dropbox_folder_not_supported',
+			'Dropbox folders are not supported here. Please link directly to a file, or watch the folder from the Dropbox Folders tab.'
+		);
+	}
+
+	$url = remove_query_arg( array( 'dl', 'raw' ), $url );
+
+	return add_query_arg( 'raw', '1', $url );
+}
+
+/**
+ * Get the canonical source URL used for Dropbox dedupe.
+ *
+ * Dropbox share links carry volatile query parameters -- `st` changes between
+ * sessions and `rlkey` can be regenerated -- so the query string is dropped and
+ * only the stable path is kept. Without this the same file would import again
+ * every time its link was reissued.
+ *
+ * @param string $url Dropbox URL.
+ * @return string
+ */
+function uimptr_get_dropbox_canonical_url( $url ) {
+	$parts = wp_parse_url( trim( (string) $url ) );
+
+	if ( empty( $parts['host'] ) || empty( $parts['path'] ) ) {
+		return '';
+	}
+
+	$host = strtolower( $parts['host'] );
+	$host = 'dropbox.com' === $host ? 'www.dropbox.com' : $host;
+
+	return 'https://' . $host . $parts['path'];
+}
+
+/**
  * Whether an HTTP response body appears to be an HTML page.
  *
  * @param string $body         Response body.
@@ -3232,9 +3324,15 @@ function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata =
 
 	$download_url            = $image_url;
 	$is_google_drive_source = $allow_google_drive && uimptr_is_google_drive_url( $image_url );
+	$is_dropbox_source      = $allow_google_drive && uimptr_is_dropbox_url( $image_url );
 
 	if ( $is_google_drive_source ) {
 		$download_url = uimptr_get_google_drive_download_url( $image_url );
+		if ( is_wp_error( $download_url ) ) {
+			return $download_url;
+		}
+	} elseif ( $is_dropbox_source ) {
+		$download_url = uimptr_get_dropbox_download_url( $image_url );
 		if ( is_wp_error( $download_url ) ) {
 			return $download_url;
 		}
@@ -5058,7 +5156,9 @@ function uimptr_is_image_url( $url ) {
  * @return bool
  */
 function uimptr_is_csv_image_import_candidate_url( $url ) {
-	return uimptr_is_image_url( $url ) || uimptr_is_google_drive_url( $url );
+	return uimptr_is_image_url( $url )
+		|| uimptr_is_google_drive_url( $url )
+		|| ( uimptr_is_dropbox_url( $url ) && ! uimptr_is_dropbox_folder_url( $url ) );
 }
 
 /**
@@ -5081,6 +5181,13 @@ function uimptr_normalize_source_url( $url ) {
 		}
 	}
 
+	if ( uimptr_is_dropbox_url( $url ) ) {
+		$canonical_dropbox_url = uimptr_get_dropbox_canonical_url( $url );
+		if ( '' !== $canonical_dropbox_url ) {
+			return $canonical_dropbox_url;
+		}
+	}
+
 	$normalized = esc_url_raw( $url );
 
 	return '' !== $normalized ? $normalized : $url;
@@ -5096,7 +5203,7 @@ function uimptr_normalize_source_url( $url ) {
  * @return bool
  */
 function uimptr_url_supports_filename_dedupe( $url ) {
-	if ( uimptr_is_google_drive_url( $url ) ) {
+	if ( uimptr_is_google_drive_url( $url ) || uimptr_is_dropbox_url( $url ) ) {
 		return false;
 	}
 
