@@ -65,6 +65,7 @@ class GoogleDriveFolderController {
 		add_action( 'wp_ajax_uimptr_drive_remove_folder', array( $this, 'ajax_remove_folder' ) );
 		add_action( 'wp_ajax_uimptr_drive_toggle_folder', array( $this, 'ajax_toggle_folder' ) );
 		add_action( 'wp_ajax_uimptr_drive_sync_now', array( $this, 'ajax_sync_now' ) );
+		add_action( 'wp_ajax_uimptr_drive_set_interval', array( $this, 'ajax_set_interval' ) );
 	}
 
 	/**
@@ -272,6 +273,39 @@ class GoogleDriveFolderController {
 	}
 
 	/**
+	 * AJAX: change how often folders are checked.
+	 *
+	 * Applies immediately by re-arming the scheduled event, so the choice takes
+	 * effect without having to add another folder.
+	 *
+	 * @return void
+	 */
+	public function ajax_set_interval() {
+		$this->verify_request();
+
+		$interval = isset( $_POST['interval'] ) ? sanitize_text_field( wp_unslash( $_POST['interval'] ) ) : '';
+
+		if ( ! array_key_exists( $interval, self::get_intervals() ) ) {
+			wp_send_json_error( array( 'message' => __( 'That is not a valid schedule.', 'url-image-importer' ) ) );
+		}
+
+		update_option( self::OPTION_INTERVAL, $interval );
+		self::maybe_schedule();
+
+		$labels = self::get_intervals();
+
+		wp_send_json_success(
+			array(
+				'message' => sprintf(
+					/* translators: %s: schedule label, e.g. "Every hour". */
+					__( 'Schedule updated: %s.', 'url-image-importer' ),
+					$labels[ $interval ]
+				),
+			)
+		);
+	}
+
+	/**
 	 * AJAX: run a sync immediately.
 	 *
 	 * @return void
@@ -398,6 +432,9 @@ class GoogleDriveFolderController {
 									</option>
 								<?php endforeach; ?>
 							</select>
+							<p class="description">
+								<?php esc_html_e( 'Applies to every watched folder, and saves as soon as you change it.', 'url-image-importer' ); ?>
+							</p>
 						</td>
 					</tr>
 				</table>
@@ -508,6 +545,17 @@ class GoogleDriveFolderController {
 					$body.append($row);
 				});
 			}
+
+			// The schedule is a global setting, so it saves on change rather than
+			// only when a folder is added.
+			$('#uimptr-drive-interval').on('change', function() {
+				var $select = $(this).prop('disabled', true);
+				post('uimptr_drive_set_interval', { interval: $select.val() }, function(r) {
+					$('#uimptr-drive-feedback')
+						.css('color', r && r.success ? '#008a20' : '#b32d2e')
+						.text(r && r.data ? r.data.message : '');
+				}).always(function() { $select.prop('disabled', false); });
+			});
 
 			$('#uimptr-drive-add').on('click', function() {
 				var url = $.trim($('#uimptr-drive-url').val());
