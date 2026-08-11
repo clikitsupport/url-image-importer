@@ -593,6 +593,18 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_parse_url' ) ) {
+	function wp_parse_url( $url, $component = -1 ) {
+		return parse_url( $url, $component );
+	}
+}
+
+if ( ! function_exists( 'wp_parse_str' ) ) {
+	function wp_parse_str( $input_string, &$result ) {
+		parse_str( (string) $input_string, $result );
+	}
+}
+
 if ( ! function_exists( 'add_query_arg' ) ) {
 	function add_query_arg( $args, $value = null, $url = null ) {
 		if ( is_array( $args ) ) {
