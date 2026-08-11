@@ -66,6 +66,19 @@ class TestableDriveSync extends GoogleDriveFolderSync {
 	}
 }
 
+/**
+ * Counts how often progress is persisted during a run.
+ */
+class CheckpointObservingSync extends TestableDriveSync {
+	/** @var int */
+	public $checkpoints = 0;
+
+	protected function checkpoint( $key, $folder ) {
+		$this->checkpoints++;
+		parent::checkpoint( $key, $folder );
+	}
+}
+
 class GoogleDriveFolderSyncTest extends WpTestCase {
 
 	private function fixture( string $name ): string {
@@ -363,6 +376,62 @@ class GoogleDriveFolderSyncTest extends WpTestCase {
 
 		$this->assertSame( 1, $result['imported'], 'The run should stop once the time budget is spent.' );
 		$this->assertSame( 2, $result['remaining'] );
+	}
+
+	public function test_concurrent_run_is_refused_while_a_sync_is_in_flight(): void {
+		list( $sync, $key ) = $this->seeded_sync( array( $this->entry( 'F1', 'a.jpg' ) ) );
+
+		// Simulate a run that is still executing after its request timed out.
+		set_transient( GoogleDriveFolderSync::OPTION_FOLDERS . '_lock_' . $key, time(), 600 );
+
+		$result = $sync->sync_folder( $key );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'drive_folder_locked', $result->get_error_code() );
+		$this->assertSame( array(), $sync->imported, 'A locked folder must not be imported twice.' );
+	}
+
+	public function test_lock_is_released_after_a_successful_run(): void {
+		list( $sync, $key ) = $this->seeded_sync( array( $this->entry( 'F1', 'a.jpg' ) ) );
+
+		$sync->sync_folder( $key );
+
+		$this->assertFalse(
+			get_transient( GoogleDriveFolderSync::OPTION_FOLDERS . '_lock_' . $key ),
+			'A finished run must not leave its folder locked.'
+		);
+	}
+
+	public function test_lock_is_released_when_the_folder_cannot_be_read(): void {
+		list( $sync, $key ) = $this->seeded_sync( array( $this->entry( 'F1', 'a.jpg' ) ) );
+
+		$broken = new TestableDriveSync( new FakeDriveEnumerator( new WP_Error( 'drive_folder_parse_failed', 'boom' ) ) );
+		$broken->sync_folder( $key );
+
+		$this->assertFalse(
+			get_transient( GoogleDriveFolderSync::OPTION_FOLDERS . '_lock_' . $key ),
+			'A failed run must not leave its folder locked forever.'
+		);
+	}
+
+	public function test_progress_is_checkpointed_during_a_run(): void {
+		// Guards against losing the whole ledger when a run is killed part way.
+		$entries = array();
+		for ( $i = 1; $i <= GoogleDriveFolderSync::CHECKPOINT_EVERY; $i++ ) {
+			$entries[] = $this->entry( 'F' . $i, $i . '.jpg' );
+		}
+
+		$enumerator = new FakeDriveEnumerator( $this->listing( $entries ) );
+		$sync       = new CheckpointObservingSync( $enumerator );
+		$record     = $sync->add_folder( 'https://drive.google.com/drive/folders/FOLDER1' );
+
+		$sync->sync_folder( $record['key'] );
+
+		$this->assertGreaterThan(
+			1,
+			$sync->checkpoints,
+			'Progress should be written during the run, not only at the end.'
+		);
 	}
 
 	public function test_sync_gives_up_after_repeated_import_failures(): void {

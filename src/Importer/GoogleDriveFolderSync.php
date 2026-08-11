@@ -76,6 +76,25 @@ class GoogleDriveFolderSync {
 	const INTERACTIVE_TIME_BUDGET = 20;
 
 	/**
+	 * Persist progress after this many imports.
+	 *
+	 * A run can be killed part way through by a request timeout, so the ledger
+	 * is written as it goes rather than only at the end. Without this, an
+	 * interrupted run loses every file it just imported and downloads them all
+	 * again on the next pass.
+	 *
+	 * @var int
+	 */
+	const CHECKPOINT_EVERY = 5;
+
+	/**
+	 * How long a folder's sync lock is held, in seconds.
+	 *
+	 * @var int
+	 */
+	const LOCK_TIMEOUT = 600;
+
+	/**
 	 * Folder enumerator.
 	 *
 	 * @var GoogleDriveFolderEnumerator
@@ -327,16 +346,23 @@ class GoogleDriveFolderSync {
 		$batch_limit = null === $batch_limit ? self::DEFAULT_BATCH_LIMIT : max( 1, (int) $batch_limit );
 		$folder      = $folders[ $key ];
 
+		if ( ! $this->acquire_lock( $key ) ) {
+			return new WP_Error(
+				'drive_folder_locked',
+				__( 'This folder is already being checked. Try again in a moment.', 'url-image-importer' )
+			);
+		}
+
 		$listing = $this->enumerator->list_files( '' !== $folder['url'] ? $folder['url'] : $folder['folder_id'] );
 
 		if ( is_wp_error( $listing ) ) {
+			$this->release_lock( $key );
 			// Record the failure loudly. A sync that cannot read its folder must
 			// never look like a clean run that simply found nothing new.
 			$folder['last_sync']   = time();
 			$folder['last_status'] = 'error';
 			$folder['last_error']  = $listing->get_error_message();
-			$folders[ $key ]       = $folder;
-			self::save_folders( $folders );
+			$this->checkpoint( $key, $folder );
 
 			return $listing;
 		}
@@ -386,14 +412,19 @@ class GoogleDriveFolderSync {
 			$folder['seen'][ $file_id ] = time();
 			$folder['imported']         = (int) $folder['imported'] + 1;
 			$imported++;
+
+			// Checkpoint so a run killed by a request timeout keeps its progress.
+			if ( 0 === $imported % self::CHECKPOINT_EVERY ) {
+				$this->checkpoint( $key, $folder );
+			}
 		}
 
 		$folder['last_sync']   = time();
 		$folder['last_status'] = 'ok';
 		$folder['last_error']  = '';
 		$folder['truncated']   = ! empty( $listing['truncated'] );
-		$folders[ $key ]       = $folder;
-		self::save_folders( $folders );
+		$this->checkpoint( $key, $folder );
+		$this->release_lock( $key );
 
 		return array(
 			'imported'  => $imported,
@@ -403,6 +434,59 @@ class GoogleDriveFolderSync {
 			'skipped'   => count( $listing['skipped'] ),
 			'truncated' => ! empty( $listing['truncated'] ),
 		);
+	}
+
+	/**
+	 * Claim the sync lock for a folder.
+	 *
+	 * A run that overruns its request can keep executing after the browser has
+	 * given up. Without a lock, the next run reads the pre-run ledger and the
+	 * two writes clobber each other, losing progress and re-downloading files.
+	 *
+	 * @param string $key Folder key.
+	 * @return bool Whether the lock was acquired.
+	 */
+	protected function acquire_lock( $key ) {
+		$lock = self::OPTION_FOLDERS . '_lock_' . $key;
+
+		if ( get_transient( $lock ) ) {
+			return false;
+		}
+
+		set_transient( $lock, time(), self::LOCK_TIMEOUT );
+
+		return true;
+	}
+
+	/**
+	 * Release a folder's sync lock.
+	 *
+	 * @param string $key Folder key.
+	 * @return void
+	 */
+	protected function release_lock( $key ) {
+		delete_transient( self::OPTION_FOLDERS . '_lock_' . $key );
+	}
+
+	/**
+	 * Merge this run's progress into the stored folder record.
+	 *
+	 * The record is re-read immediately before writing so a concurrent update
+	 * to an unrelated folder is not lost.
+	 *
+	 * @param string $key    Folder key.
+	 * @param array  $folder Folder record for this run.
+	 * @return void
+	 */
+	protected function checkpoint( $key, $folder ) {
+		$folders = self::get_folders();
+
+		if ( ! isset( $folders[ $key ] ) ) {
+			return;
+		}
+
+		$folders[ $key ] = $folder;
+		self::save_folders( $folders );
 	}
 
 	/**
