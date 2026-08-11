@@ -3,14 +3,14 @@
  *
  * Plugin Name: URL Image Importer
  * Description: A plugin to import multiple images into the WordPress Media Library from URLs.
- * Version: 1.2.3
+ * Version: 1.3
  * Author: Infinite Uploads
  * Author URI: https://infiniteuploads.com
  * Text Domain: url-image-importer
  * License: GPL2
  *
  * @package UrlImageImporter
- * @version 1.2.3
+ * @version 1.3
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 $upload_dir = wp_upload_dir();
 
 define( 'UIMPTR_PATH', plugin_dir_path( __FILE__ ) );
-define( 'UIMPTR_VERSION', '1.2.3' );
+define( 'UIMPTR_VERSION', '1.3' );
 
 // Guard against redefinition. On multisite, WordPress core already defines UPLOADBLOGSDIR
 // (see ms_upload_constants()), and other plugins may define it too; a second unguarded

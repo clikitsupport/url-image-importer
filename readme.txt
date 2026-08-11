@@ -3,12 +3,12 @@ Contributors: bww
 Tags: media library, image import, csv import, images, upload
 Requires at least: 5.3
 Tested up to: 7.0
-Stable tag: 1.2.3
+Stable tag: 1.3
 Requires PHP: 7.4
 License: GPLv2 or higher
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Import external images into your WordPress Media Library from any URL, CSV, XML export, or Google Drive link. Bulk import, site migration ready.
+Import images into your WordPress Media Library from any URL, CSV, XML export, Google Drive, or Dropbox link. Auto-import from watched folders.
 
 == Description ==
 
@@ -20,7 +20,8 @@ The plugin fetches images directly from external links, validates them, and adds
 
 - Import any image directly into your WordPress Media Library from a URL—no file uploads required.
 - Import multiple images at once using a **CSV spreadsheet** with image URLs in bulk.
-- Import public image files from Google Drive share links in the URL and CSV import tools.
+- Import public image files from Google Drive and Dropbox share links in the URL and CSV import tools.
+- **Watch a Google Drive or Dropbox folder** and automatically import new images into your Media Library on a schedule — no account connection, API key, or app setup required.
 - Import from **WordPress XML export files** to restore or migrate images between sites.
 - Export a spreadsheet-ready **URL mapping CSV** (Old URL → New URL) after batch imports for database replacement workflows.
 - Works seamlessly with any hosting environment or server setup.
@@ -133,6 +134,13 @@ You can report security bugs through the Wordfence Vulnerability Disclosure Prog
 3. Submit the form. If successful, the image(s) will be added to the Media Library, and you’ll get a link to edit them.
 
 == Changelog ==
+
+= 1.3 - 08/11/2026 =
+- New: Watch a Google Drive folder and automatically import new images into your Media Library. Paste the folder's share link under Media > Import Images — no Google account connection, API key, or app setup required.
+- New: Watch Dropbox folders the same way, from the new Dropbox Folders tab.
+- New: Import single images from Dropbox share links in the URL and CSV importers.
+- Choose how often watched folders are checked (every hour, twice a day, or once a day), or run a check any time with one click.
+- Folder syncing only ever adds images — removing a file from a watched folder never deletes anything from your Media Library.
 
 = 1.2.3 - 07/23/2026 =
 - Security: hardened the URL, CSV, XML, and Google Drive image importers against Server-Side Request Forgery (SSRF). Remote images are now fetched through WordPress's safe HTTP client together with an explicit host check that rejects any URL resolving to an internal, private, loopback, link-local, or reserved address (including the 169.254.169.254 cloud metadata endpoint), re-validated on every redirect hop. Thanks to Pierre Rudloff for the responsible disclosure.
