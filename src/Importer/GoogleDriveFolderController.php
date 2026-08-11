@@ -51,6 +51,7 @@ class GoogleDriveFolderController extends CloudFolderController {
 	 */
 	protected static function copy() {
 		return array(
+			'provider'    => __( 'Google Drive', 'url-image-importer' ),
 			'heading'     => __( 'Sync a Google Drive Folder', 'url-image-importer' ),
 			'intro'       => __( 'Watch a Google Drive folder and import new images into your Media Library automatically. No Google account connection, API key, or app setup is required.', 'url-image-importer' ),
 			'sharing'     => __( 'In Google Drive, right-click the folder, choose Share, then set General access to "Anyone with the link".', 'url-image-importer' ),

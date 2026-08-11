@@ -56,6 +56,7 @@ class DropboxFolderController extends CloudFolderController {
 	 */
 	protected static function copy() {
 		return array(
+			'provider'    => __( 'Dropbox', 'url-image-importer' ),
 			'heading'     => __( 'Sync a Dropbox Folder', 'url-image-importer' ),
 			'intro'       => __( 'Watch a Dropbox folder and import new images into your Media Library automatically. No Dropbox account connection, app key, or API setup is required.', 'url-image-importer' ),
 			'sharing'     => __( 'In Dropbox, choose Share on the folder and copy the "Anyone with the link — can view" link. An edit link is not needed, and grants more access than importing requires.', 'url-image-importer' ),

@@ -532,7 +532,13 @@ abstract class CloudFolderController {
 				</p>
 
 				<p class="description">
-					<?php esc_html_e( 'Images are only ever added. Removing a file from Google Drive never deletes anything from your Media Library.', 'url-image-importer' ); ?>
+					<?php
+					printf(
+						/* translators: %s: cloud provider name, e.g. Google Drive or Dropbox. */
+						esc_html__( 'Images are only ever added. Removing a file from %s never deletes anything from your Media Library.', 'url-image-importer' ),
+						esc_html( $copy['provider'] )
+					);
+					?>
 				</p>
 			</div>
 
