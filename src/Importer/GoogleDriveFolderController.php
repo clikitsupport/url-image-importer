@@ -283,7 +283,7 @@ class GoogleDriveFolderController {
 		$sync = new GoogleDriveFolderSync();
 
 		if ( '' !== $key ) {
-			$result = $sync->sync_folder( $key );
+			$result = $sync->sync_folder( $key, null, GoogleDriveFolderSync::INTERACTIVE_TIME_BUDGET );
 
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error(
@@ -309,7 +309,7 @@ class GoogleDriveFolderController {
 			);
 		}
 
-		$summary = $sync->sync_all();
+		$summary = $sync->sync_all( null, GoogleDriveFolderSync::INTERACTIVE_TIME_BUDGET );
 
 		wp_send_json_success(
 			array(
@@ -449,7 +449,8 @@ class GoogleDriveFolderController {
 			); ?>;
 
 			function post(action, data, done) {
-				$.post(ajaxUrl, $.extend({ action: action, nonce: nonce }, data || {}), done);
+				// Returned so callers can chain .always() to re-enable buttons.
+				return $.post(ajaxUrl, $.extend({ action: action, nonce: nonce }, data || {}), done);
 			}
 
 			function render() {

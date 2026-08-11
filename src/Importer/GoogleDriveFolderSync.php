@@ -58,6 +58,24 @@ class GoogleDriveFolderSync {
 	const MAX_IMPORT_ATTEMPTS = 3;
 
 	/**
+	 * Seconds a scheduled run may spend importing.
+	 *
+	 * @var int
+	 */
+	const CRON_TIME_BUDGET = 45;
+
+	/**
+	 * Seconds an interactive ("Check now") run may spend importing.
+	 *
+	 * Kept well under the 100 second gateway timeout common on managed hosts,
+	 * so the browser always gets a real answer instead of a 504/524. Whatever
+	 * is left over is picked up by the next run.
+	 *
+	 * @var int
+	 */
+	const INTERACTIVE_TIME_BUDGET = 20;
+
+	/**
 	 * Folder enumerator.
 	 *
 	 * @var GoogleDriveFolderEnumerator
@@ -239,10 +257,13 @@ class GoogleDriveFolderSync {
 	 * Sync every enabled folder.
 	 *
 	 * @param int|null $batch_limit Maximum imports across all folders.
+	 * @param int|null $time_budget Seconds the whole run may spend importing.
 	 * @return array Summary of the run.
 	 */
-	public function sync_all( $batch_limit = null ) {
+	public function sync_all( $batch_limit = null, $time_budget = null ) {
 		$batch_limit = null === $batch_limit ? self::DEFAULT_BATCH_LIMIT : max( 1, (int) $batch_limit );
+		$time_budget = null === $time_budget ? self::CRON_TIME_BUDGET : max( 1, (int) $time_budget );
+		$started_at  = time();
 
 		$summary = array(
 			'imported'  => 0,
@@ -257,13 +278,19 @@ class GoogleDriveFolderSync {
 				continue;
 			}
 
-			if ( $summary['imported'] >= $batch_limit ) {
+			$elapsed = time() - $started_at;
+
+			if ( $summary['imported'] >= $batch_limit || $elapsed >= $time_budget ) {
 				// Out of budget for this run; report what is still outstanding.
 				$summary['remaining'] += 1;
 				continue;
 			}
 
-			$result = $this->sync_folder( $key, $batch_limit - $summary['imported'] );
+			$result = $this->sync_folder(
+				$key,
+				$batch_limit - $summary['imported'],
+				$time_budget - $elapsed
+			);
 			$summary['folders']++;
 
 			if ( is_wp_error( $result ) ) {
@@ -284,9 +311,10 @@ class GoogleDriveFolderSync {
 	 *
 	 * @param string   $key         Folder key.
 	 * @param int|null $batch_limit Maximum imports for this folder.
+	 * @param int|null $time_budget Seconds this run may spend importing.
 	 * @return array|WP_Error Result summary, or an error if the folder could not be read.
 	 */
-	public function sync_folder( $key, $batch_limit = null ) {
+	public function sync_folder( $key, $batch_limit = null, $time_budget = null ) {
 		$folders = self::get_folders();
 
 		if ( ! isset( $folders[ $key ] ) ) {
@@ -313,9 +341,11 @@ class GoogleDriveFolderSync {
 			return $listing;
 		}
 
-		$imported  = 0;
-		$failed    = 0;
-		$remaining = 0;
+		$imported    = 0;
+		$failed      = 0;
+		$remaining   = 0;
+		$time_budget = null === $time_budget ? self::CRON_TIME_BUDGET : max( 1, (int) $time_budget );
+		$started_at  = time();
 
 		foreach ( $listing['entries'] as $entry ) {
 			$file_id = $entry['id'];
@@ -330,7 +360,9 @@ class GoogleDriveFolderSync {
 				continue;
 			}
 
-			if ( $imported >= $batch_limit ) {
+			// Stop on either budget. Downloads vary hugely in size, so a time
+			// budget is what actually keeps a run inside the request timeout.
+			if ( $imported >= $batch_limit || ( time() - $started_at ) >= $time_budget ) {
 				$remaining++;
 				continue;
 			}

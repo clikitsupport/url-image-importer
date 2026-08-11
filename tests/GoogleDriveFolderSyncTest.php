@@ -44,8 +44,15 @@ class TestableDriveSync extends GoogleDriveFolderSync {
 	/** @var int */
 	protected $next_id = 100;
 
+	/** @var int Seconds each simulated import takes. */
+	public $import_seconds = 0;
+
 	protected function import_file( $url ) {
 		$this->imported[] = $url;
+
+		if ( $this->import_seconds > 0 ) {
+			sleep( $this->import_seconds );
+		}
 
 		if ( in_array( $url, $this->failing, true ) ) {
 			return new WP_Error( 'invalid_image', 'File failed content validation.' );
@@ -338,6 +345,24 @@ class GoogleDriveFolderSyncTest extends WpTestCase {
 		// The leftover file is picked up on the next run.
 		$next = $sync->sync_folder( $key, 2 );
 		$this->assertSame( 1, $next['imported'] );
+	}
+
+	public function test_sync_stops_when_the_time_budget_is_spent(): void {
+		// Guards against gateway timeouts: slow downloads must end the run early
+		// rather than running until the request is killed.
+		list( $sync, $key ) = $this->seeded_sync(
+			array(
+				$this->entry( 'F1', 'a.jpg' ),
+				$this->entry( 'F2', 'b.jpg' ),
+				$this->entry( 'F3', 'c.jpg' ),
+			)
+		);
+		$sync->import_seconds = 1;
+
+		$result = $sync->sync_folder( $key, 50, 1 );
+
+		$this->assertSame( 1, $result['imported'], 'The run should stop once the time budget is spent.' );
+		$this->assertSame( 2, $result['remaining'] );
 	}
 
 	public function test_sync_gives_up_after_repeated_import_failures(): void {
