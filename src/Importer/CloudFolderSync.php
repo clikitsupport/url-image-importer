@@ -238,7 +238,7 @@ abstract class CloudFolderSync {
 			return $listing;
 		}
 
-		$key    = 'gdf_' . substr( md5( $folder_id ), 0, 12 );
+		$key    = 'f_' . substr( md5( static::OPTION_FOLDERS . '|' . $folder_id ), 0, 14 );
 		$record = array_merge(
 			static::folder_defaults(),
 			array(

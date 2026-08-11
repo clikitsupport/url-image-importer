@@ -3322,6 +3322,17 @@ function uimptr_ssrf_safe_remote_get( $url, $args = array() ) {
  * @param bool  $allow_google_drive Whether Google Drive share URLs should be resolved before download.
  * */
 function uimptr_import_image_from_url( $image_url, $batch_id = null, $metadata = array(), $preserve_dates = false, $_deprecated_strip_extension = true, $allow_google_drive = true ) {
+	// These admin includes provide wp_tempnam() and the attachment-metadata
+	// helpers used below. They are always loaded during an admin request, but
+	// not on the WP-Cron request that drives scheduled folder syncing, so load
+	// them explicitly to keep this function safe to call from any context.
+	if ( ! function_exists( 'wp_tempnam' ) ) {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+	}
+	if ( ! function_exists( 'wp_read_image_metadata' ) ) {
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+	}
+
 	// Check for stop command if batch_id is provided
 	if ( $batch_id ) {
 		$cancel_flag = get_transient( uimptr_get_batch_cancel_transient_key( $batch_id ) );
