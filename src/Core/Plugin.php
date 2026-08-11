@@ -98,6 +98,9 @@ class Plugin {
 	public function init_components() {
 		// Initialize promotional notices
 		\UrlImageImporter\Admin\PromoNotices::get_instance();
+
+		// Google Drive folder syncing (cron, AJAX, admin notices).
+		\UrlImageImporter\Importer\GoogleDriveFolderController::get_instance();
 	}
 
 	/**

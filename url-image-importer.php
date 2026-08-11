@@ -1303,7 +1303,15 @@ function uimptr_import_images_url_page() {
 		<a href="#url-import" class="nav-tab nav-tab-active" id="url-tab">URL Import</a>
 		<a href="#xml-import" class="nav-tab" id="xml-tab">WordPress XML Import</a>
 		<a href="#csv-import" class="nav-tab" id="csv-tab">CSV Import</a>
+		<a href="#drive-sync" class="nav-tab" id="drive-tab"><?php esc_html_e( 'Google Drive Folders', 'url-image-importer' ); ?></a>
 	</div>
+
+	<?php
+	// Google Drive folder syncing panel.
+	if ( class_exists( 'UrlImageImporter\\Importer\\GoogleDriveFolderController' ) ) {
+		UrlImageImporter\Importer\GoogleDriveFolderController::get_instance()->render_tab();
+	}
+	?>
 
 	<!-- URL Import Form -->
 	<div id="url-import" class="import-method">
@@ -5607,5 +5615,11 @@ function uimptr_plugin_deactivation() {
 	delete_metadata( 'user', 0, 'bfu_notice_dismissed', '', true );
 	delete_metadata( 'user', 0, 'bfu_upgrade_notice_dismissed', '', true );
 	delete_metadata( 'user', 0, 'bfu_subscribe_notice_dismissed', '', true );
+
+	// Stop the Google Drive folder sync. Watched folders and imported media are
+	// left intact so reactivating picks up where it left off.
+	if ( class_exists( 'UrlImageImporter\\Importer\\GoogleDriveFolderController' ) ) {
+		UrlImageImporter\Importer\GoogleDriveFolderController::unschedule();
+	}
 }
 register_deactivation_hook( __FILE__, 'uimptr_plugin_deactivation' );
