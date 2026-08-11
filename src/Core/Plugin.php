@@ -101,6 +101,7 @@ class Plugin {
 
 		// Google Drive folder syncing (cron, AJAX, admin notices).
 		\UrlImageImporter\Importer\GoogleDriveFolderController::get_instance();
+		\UrlImageImporter\Importer\DropboxFolderController::get_instance();
 	}
 
 	/**

@@ -1304,12 +1304,16 @@ function uimptr_import_images_url_page() {
 		<a href="#xml-import" class="nav-tab" id="xml-tab">WordPress XML Import</a>
 		<a href="#csv-import" class="nav-tab" id="csv-tab">CSV Import</a>
 		<a href="#drive-sync" class="nav-tab" id="drive-tab"><?php esc_html_e( 'Google Drive Folders', 'url-image-importer' ); ?></a>
+		<a href="#dropbox-sync" class="nav-tab" id="dropbox-tab"><?php esc_html_e( 'Dropbox Folders', 'url-image-importer' ); ?></a>
 	</div>
 
 	<?php
 	// Google Drive folder syncing panel.
 	if ( class_exists( 'UrlImageImporter\\Importer\\GoogleDriveFolderController' ) ) {
 		UrlImageImporter\Importer\GoogleDriveFolderController::get_instance()->render_tab();
+	}
+	if ( class_exists( 'UrlImageImporter\\Importer\\DropboxFolderController' ) ) {
+		UrlImageImporter\Importer\DropboxFolderController::get_instance()->render_tab();
 	}
 	?>
 
@@ -2686,7 +2690,11 @@ function uimptr_is_dropbox_url( $url ) {
 /**
  * Whether a Dropbox URL points at a folder rather than a single file.
  *
- * Folder links use the /scl/fo/ prefix, files use /scl/fi/ or the legacy /s/.
+ * Files *inside* a shared folder also sit under the /scl/fo/ prefix -- their
+ * links are the folder's key and hash followed by the filename -- so the prefix
+ * alone cannot tell the two apart. A folder link stops at the key and hash; a
+ * file link has a further segment. Getting this wrong makes every file in a
+ * watched folder look like a folder and silently import nothing.
  *
  * @param string $url Dropbox URL.
  * @return bool
@@ -2694,7 +2702,7 @@ function uimptr_is_dropbox_url( $url ) {
 function uimptr_is_dropbox_folder_url( $url ) {
 	$path = (string) wp_parse_url( (string) $url, PHP_URL_PATH );
 
-	return (bool) preg_match( '#^/(?:scl/fo|sh)/#i', $path );
+	return (bool) preg_match( '#^/(?:scl/fo|sh)/[^/]+/[^/]+/?$#i', $path );
 }
 
 /**
