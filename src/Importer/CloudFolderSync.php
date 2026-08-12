@@ -149,8 +149,10 @@ abstract class CloudFolderSync {
 			'enabled'     => true,
 			'seen'        => array(),
 			'failed'      => array(),
-			'last_sync'   => 0,
-			'last_status' => 'never',
+			'last_sync'    => 0,
+			'last_status'  => 'never',
+			'total_images' => 0,
+			'remaining'    => 0,
 			'last_error'  => '',
 			'imported'    => 0,
 			'truncated'   => false,
@@ -444,10 +446,16 @@ abstract class CloudFolderSync {
 			}
 		}
 
-		$folder['last_sync']   = time();
-		$folder['last_status'] = 'ok';
-		$folder['last_error']  = '';
-		$folder['truncated']   = ! empty( $listing['truncated'] );
+		$folder['last_sync']    = time();
+		$folder['last_status']  = 'ok';
+		$folder['last_error']   = '';
+		$folder['truncated']    = ! empty( $listing['truncated'] );
+		// Record progress so the UI can show "still importing" rather than a
+		// bare count that looks stuck when a large folder is mid-catch-up. A
+		// run is bounded by time and batch size, so a folder with more images
+		// than one run can handle finishes over several scheduled checks.
+		$folder['total_images'] = count( $listing['entries'] );
+		$folder['remaining']    = $remaining;
 		$this->checkpoint( $key, $folder );
 		$this->release_lock( $key );
 

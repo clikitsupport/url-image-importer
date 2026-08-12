@@ -449,6 +449,8 @@ abstract class CloudFolderController {
 				'url'       => $folder['url'],
 				'enabled'   => (bool) $folder['enabled'],
 				'imported'  => (int) $folder['imported'],
+				'remaining' => (int) $folder['remaining'],
+				'total'     => (int) $folder['total_images'],
 				'status'    => $folder['last_status'],
 				'error'     => $folder['last_error'],
 				'truncated' => ! empty( $folder['truncated'] ),
@@ -572,8 +574,11 @@ abstract class CloudFolderController {
 					'remove'        => __( 'Remove', 'url-image-importer' ),
 					'enabled'       => __( 'Syncing', 'url-image-importer' ),
 					'paused'        => __( 'Paused', 'url-image-importer' ),
-					'truncated'     => __( 'This folder is large enough that Google may not be listing all of it. Consider splitting it into smaller folders.', 'url-image-importer' ),
+					'truncated'     => __( 'This folder is large enough that it may not be listing in full. Consider splitting it into smaller folders.', 'url-image-importer' ),
 					'adding'        => __( 'Checking folder…', 'url-image-importer' ),
+					/* translators: %d: number of images still to import. */
+					'queued'        => __( '%d more to import — checks run on a schedule, or use Check now.', 'url-image-importer' ),
+					'caughtUp'      => __( 'All images imported.', 'url-image-importer' ),
 				)
 			); ?>;
 
@@ -596,7 +601,21 @@ abstract class CloudFolderController {
 
 					var $row = $('<tr/>');
 					$('<td/>').append($('<strong/>').text(f.label)).append(status).appendTo($row);
-					$('<td/>').text(f.imported).appendTo($row);
+
+					// Imported count, plus a progress note so a large folder that
+					// is still catching up does not look stuck at a partial number.
+					var $imported = $('<td/>').append($('<div/>').text(f.imported));
+					if (f.status !== 'error') {
+						if (f.remaining > 0) {
+							$imported.append($('<div/>').css({ color: '#996800', 'font-size': '90%' })
+								.text(strings.queued.replace('%d', f.remaining)));
+						} else if (f.total > 0) {
+							$imported.append($('<div/>').css({ color: '#008a20', 'font-size': '90%' })
+								.text(strings.caughtUp));
+						}
+					}
+					$imported.appendTo($row);
+
 					$('<td/>').text(f.last_sync).appendTo($row);
 
 					var $actions = $('<td/>');

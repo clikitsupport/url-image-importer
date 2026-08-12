@@ -434,6 +434,39 @@ class GoogleDriveFolderSyncTest extends WpTestCase {
 		);
 	}
 
+	public function test_sync_records_progress_for_a_partially_imported_folder(): void {
+		// A large folder imported in bounded runs must expose how many remain,
+		// so the UI does not show a partial count that looks stuck.
+		list( $sync, $key ) = $this->seeded_sync(
+			array(
+				$this->entry( 'F1', 'a.jpg' ),
+				$this->entry( 'F2', 'b.jpg' ),
+				$this->entry( 'F3', 'c.jpg' ),
+				$this->entry( 'F4', 'd.jpg' ),
+				$this->entry( 'F5', 'e.jpg' ),
+			)
+		);
+
+		$sync->sync_folder( $key, 2 );
+		$folder = GoogleDriveFolderSync::get_folder( $key );
+
+		$this->assertSame( 5, $folder['total_images'], 'Total images in the folder should be recorded.' );
+		$this->assertSame( 3, $folder['remaining'], 'Images not yet imported should be recorded.' );
+		$this->assertSame( 2, $folder['imported'] );
+	}
+
+	public function test_remaining_reaches_zero_once_a_folder_is_fully_imported(): void {
+		list( $sync, $key ) = $this->seeded_sync(
+			array( $this->entry( 'F1', 'a.jpg' ), $this->entry( 'F2', 'b.jpg' ) )
+		);
+
+		$sync->sync_folder( $key );
+		$folder = GoogleDriveFolderSync::get_folder( $key );
+
+		$this->assertSame( 0, $folder['remaining'], 'A fully imported folder should report nothing remaining.' );
+		$this->assertSame( 2, $folder['total_images'] );
+	}
+
 	public function test_sync_gives_up_after_repeated_import_failures(): void {
 		list( $sync, $key ) = $this->seeded_sync( array( $this->entry( 'F1', 'bad.jpg' ) ) );
 		$sync->failing      = array( 'https://drive.google.com/file/d/F1/view' );
