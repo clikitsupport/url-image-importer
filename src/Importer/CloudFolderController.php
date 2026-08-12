@@ -452,6 +452,7 @@ abstract class CloudFolderController {
 				'imported'  => (int) $folder['imported'],
 				'remaining' => (int) $folder['remaining'],
 				'total'     => (int) $folder['total_images'],
+				'failed'    => $sync_class::count_permanent_failures( $folder ),
 				'status'    => $folder['last_status'],
 				'error'     => $folder['last_error'],
 				'truncated' => ! empty( $folder['truncated'] ),
@@ -580,6 +581,8 @@ abstract class CloudFolderController {
 					/* translators: %d: number of images still to import. */
 					'queued'        => __( '%d more to import — checks run on a schedule, or use Check now.', 'url-image-importer' ),
 					'caughtUp'      => __( 'All images imported.', 'url-image-importer' ),
+					/* translators: %d: number of files that could not be imported. */
+					'someFailed'    => __( 'Imported. %d file(s) could not be imported (not a valid image, or no longer available).', 'url-image-importer' ),
 					'importingNow'  => __( 'Importing…', 'url-image-importer' ),
 					/* translators: 1: images imported so far, 2: total images in the folder. */
 					'importingOf'   => __( 'Importing… %1$d of %2$d', 'url-image-importer' ),
@@ -661,6 +664,9 @@ abstract class CloudFolderController {
 						if (f.remaining > 0) {
 							$imported.append($('<div/>').css({ color: '#996800', 'font-size': '90%' })
 								.text(strings.queued.replace('%d', f.remaining)));
+						} else if (f.failed > 0) {
+							$imported.append($('<div/>').css({ color: '#996800', 'font-size': '90%' })
+								.text(strings.someFailed.replace('%d', f.failed)));
 						} else if (f.total > 0) {
 							$imported.append($('<div/>').css({ color: '#008a20', 'font-size': '90%' })
 								.text(strings.caughtUp));

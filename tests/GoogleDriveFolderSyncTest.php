@@ -498,6 +498,19 @@ class GoogleDriveFolderSyncTest extends WpTestCase {
 		$this->assertSame( $listed_after_add + 2, $enum->calls );
 	}
 
+	public function test_permanent_failures_are_counted_for_honest_reporting(): void {
+		$folder = array(
+			'failed' => array( 'A' => 3, 'B' => 1, 'C' => 3 ),
+		);
+
+		$this->assertSame(
+			2,
+			GoogleDriveFolderSync::count_permanent_failures( $folder ),
+			'Only files that hit the retry limit count as permanent failures.'
+		);
+		$this->assertSame( 0, GoogleDriveFolderSync::count_permanent_failures( array() ) );
+	}
+
 	public function test_sync_gives_up_after_repeated_import_failures(): void {
 		list( $sync, $key ) = $this->seeded_sync( array( $this->entry( 'F1', 'bad.jpg' ) ) );
 		$sync->failing      = array( 'https://drive.google.com/file/d/F1/view' );

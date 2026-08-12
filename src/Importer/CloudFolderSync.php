@@ -615,6 +615,33 @@ abstract class CloudFolderSync {
 	}
 
 	/**
+	 * Count files in a folder that have been given up on.
+	 *
+	 * A file that fails to import on every attempt (corrupt, not actually an
+	 * image, no longer downloadable) is abandoned rather than retried forever.
+	 * Those files are why an imported count can settle just below the folder's
+	 * total, so the UI can report them honestly instead of claiming everything
+	 * imported.
+	 *
+	 * @param array $folder Folder record.
+	 * @return int
+	 */
+	public static function count_permanent_failures( $folder ) {
+		if ( empty( $folder['failed'] ) || ! is_array( $folder['failed'] ) ) {
+			return 0;
+		}
+
+		$count = 0;
+		foreach ( $folder['failed'] as $attempts ) {
+			if ( (int) $attempts >= static::MAX_IMPORT_ATTEMPTS ) {
+				$count++;
+			}
+		}
+
+		return $count;
+	}
+
+	/**
 	 * Whether any watched folder is currently in an error state.
 	 *
 	 * @return array[] Folders with a failing last run.
