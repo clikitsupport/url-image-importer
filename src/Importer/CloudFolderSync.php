@@ -50,12 +50,14 @@ abstract class CloudFolderSync {
 	/**
 	 * Maximum images imported per sync run, across all folders.
 	 *
-	 * Downloads are slow, so a large folder is spread over several runs rather
-	 * than risking a timeout on the first one.
+	 * Set high enough that the time budget, not this count, is what normally
+	 * ends a run -- importing an image (download plus thumbnail generation)
+	 * takes a few seconds, so time is the real limit. This count is a backstop
+	 * against a folder of very small, very fast images running unbounded.
 	 *
 	 * @var int
 	 */
-	const DEFAULT_BATCH_LIMIT = 20;
+	const DEFAULT_BATCH_LIMIT = 200;
 
 	/**
 	 * Give up on a file after this many failed import attempts.
@@ -74,13 +76,16 @@ abstract class CloudFolderSync {
 	/**
 	 * Seconds an interactive ("Check now") run may spend importing.
 	 *
-	 * Kept well under the 100 second gateway timeout common on managed hosts,
-	 * so the browser always gets a real answer instead of a 504/524. Whatever
-	 * is left over is picked up by the next run.
+	 * The real ceiling is the ~100 second gateway timeout common on managed
+	 * hosts; the budget is checked before each image, so the request finishes
+	 * within one image's worth of time (a few seconds) after the budget is hit.
+	 * 60 seconds imports far more per click than a very cautious value while
+	 * staying comfortably clear of that ceiling. Anything left is picked up by
+	 * the next run, and progress is checkpointed as it goes.
 	 *
 	 * @var int
 	 */
-	const INTERACTIVE_TIME_BUDGET = 20;
+	const INTERACTIVE_TIME_BUDGET = 60;
 
 	/**
 	 * Persist progress after this many imports.
