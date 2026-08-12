@@ -467,6 +467,37 @@ class GoogleDriveFolderSyncTest extends WpTestCase {
 		$this->assertSame( 2, $folder['total_images'] );
 	}
 
+	public function test_a_catch_up_reuses_the_listing_instead_of_re_listing_each_chunk(): void {
+		// The browser auto-continues a large import in many quick chunks. Each
+		// chunk must not re-list the folder, or a catch-up would hit the cloud
+		// provider dozens of times in a minute.
+		$entries = array();
+		for ( $i = 1; $i <= 4; $i++ ) {
+			$entries[] = $this->entry( 'F' . $i, $i . '.jpg' );
+		}
+
+		$enum   = new FakeDriveEnumerator( $this->listing( $entries ) );
+		$sync   = new TestableDriveSync( $enum );
+		$record = $sync->add_folder( 'https://drive.google.com/drive/folders/FOLDER1' );
+		$key    = $record['key'];
+
+		$listed_after_add = $enum->calls; // add validates the folder by listing once.
+
+		$sync->sync_folder( $key, 2 ); // cache miss: lists once, imports 2, 2 remain.
+		$sync->sync_folder( $key, 2 ); // cache hit: no new listing, imports the last 2.
+
+		$this->assertSame(
+			$listed_after_add + 1,
+			$enum->calls,
+			'The second chunk should reuse the cached listing rather than re-list.'
+		);
+
+		// Now that the folder is fully imported, the cache is dropped, so the
+		// next check lists again to pick up any newly added files.
+		$sync->sync_folder( $key );
+		$this->assertSame( $listed_after_add + 2, $enum->calls );
+	}
+
 	public function test_sync_gives_up_after_repeated_import_failures(): void {
 		list( $sync, $key ) = $this->seeded_sync( array( $this->entry( 'F1', 'bad.jpg' ) ) );
 		$sync->failing      = array( 'https://drive.google.com/file/d/F1/view' );

@@ -76,16 +76,15 @@ abstract class CloudFolderSync {
 	/**
 	 * Seconds an interactive ("Check now") run may spend importing.
 	 *
-	 * The real ceiling is the ~100 second gateway timeout common on managed
-	 * hosts; the budget is checked before each image, so the request finishes
-	 * within one image's worth of time (a few seconds) after the budget is hit.
-	 * 60 seconds imports far more per click than a very cautious value while
-	 * staying comfortably clear of that ceiling. Anything left is picked up by
-	 * the next run, and progress is checkpointed as it goes.
+	 * Deliberately short: the browser auto-continues chunk after chunk until the
+	 * folder is done, so a short budget makes the on-screen count climb every
+	 * few seconds (responsive) instead of after one long, silent request. The
+	 * cached listing keeps each chunk cheap, and progress is checkpointed as it
+	 * goes, so a chunk that is interrupted loses nothing.
 	 *
 	 * @var int
 	 */
-	const INTERACTIVE_TIME_BUDGET = 60;
+	const INTERACTIVE_TIME_BUDGET = 12;
 
 	/**
 	 * Persist progress after this many imports.
@@ -385,9 +384,10 @@ abstract class CloudFolderSync {
 			);
 		}
 
-		$listing = $this->enumerator->list_files( '' !== $folder['url'] ? $folder['url'] : $folder['folder_id'] );
+		$listing = $this->cached_listing( $key, $folder );
 
 		if ( is_wp_error( $listing ) ) {
+			$this->clear_listing_cache( $key );
 			$this->release_lock( $key );
 			// Record the failure loudly. A sync that cannot read its folder must
 			// never look like a clean run that simply found nothing new.
@@ -462,6 +462,13 @@ abstract class CloudFolderSync {
 		$folder['total_images'] = count( $listing['entries'] );
 		$folder['remaining']    = $remaining;
 		$this->checkpoint( $key, $folder );
+
+		// Once the folder is fully imported, drop the cached listing so the next
+		// scheduled check re-reads the folder and notices newly added files.
+		if ( 0 === $remaining ) {
+			$this->clear_listing_cache( $key );
+		}
+
 		$this->release_lock( $key );
 
 		return array(
@@ -504,6 +511,47 @@ abstract class CloudFolderSync {
 	 */
 	protected function release_lock( $key ) {
 		delete_transient( static::OPTION_FOLDERS . '_lock_' . $key );
+	}
+
+	/**
+	 * Get the folder listing, reusing a short-lived cache within a catch-up.
+	 *
+	 * Importing a large folder happens in many quick, auto-continuing chunks.
+	 * Re-listing the folder on every chunk would mean dozens of requests to
+	 * Google or Dropbox in a couple of minutes, which is wasteful and risks
+	 * rate limiting. The listing is cached for the duration of a catch-up and
+	 * cleared once the folder is fully imported, so the next scheduled check
+	 * still picks up newly added files.
+	 *
+	 * @param string $key    Folder key.
+	 * @param array  $folder Folder record.
+	 * @return array|\WP_Error
+	 */
+	protected function cached_listing( $key, $folder ) {
+		$cache_key = static::OPTION_FOLDERS . '_listing_' . $key;
+		$cached    = get_transient( $cache_key );
+
+		if ( is_array( $cached ) && isset( $cached['entries'] ) ) {
+			return $cached;
+		}
+
+		$listing = $this->enumerator->list_files( '' !== $folder['url'] ? $folder['url'] : $folder['folder_id'] );
+
+		if ( ! is_wp_error( $listing ) ) {
+			set_transient( $cache_key, $listing, 10 * MINUTE_IN_SECONDS );
+		}
+
+		return $listing;
+	}
+
+	/**
+	 * Drop a folder's cached listing.
+	 *
+	 * @param string $key Folder key.
+	 * @return void
+	 */
+	protected function clear_listing_cache( $key ) {
+		delete_transient( static::OPTION_FOLDERS . '_listing_' . $key );
 	}
 
 	/**

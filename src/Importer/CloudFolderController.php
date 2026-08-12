@@ -302,7 +302,8 @@ abstract class CloudFolderController {
 
 		wp_send_json_success(
 			array(
-				'message' => __( 'Folder added. New images will be imported automatically.', 'url-image-importer' ),
+				'message' => __( 'Folder added — importing your images now.', 'url-image-importer' ),
+				'key'     => $result['key'],
 				'folders' => $this->folders_payload(),
 			)
 		);
@@ -579,6 +580,9 @@ abstract class CloudFolderController {
 					/* translators: %d: number of images still to import. */
 					'queued'        => __( '%d more to import — checks run on a schedule, or use Check now.', 'url-image-importer' ),
 					'caughtUp'      => __( 'All images imported.', 'url-image-importer' ),
+					'importingNow'  => __( 'Importing…', 'url-image-importer' ),
+					/* translators: 1: images imported so far, 2: total images in the folder. */
+					'importingOf'   => __( 'Importing… %1$d of %2$d', 'url-image-importer' ),
 				)
 			); ?>;
 
@@ -586,6 +590,50 @@ abstract class CloudFolderController {
 				// Returned so callers can chain .always() to re-enable buttons.
 				return $.post(ajaxUrl, $.extend({ action: action, nonce: nonce }, data || {}), done);
 			}
+
+				// Folders currently mid auto-import, keyed by folder key.
+				var importing = {};
+
+				function findFolder(key) {
+					for (var i = 0; i < folders.length; i++) {
+						if (folders[i].key === key) { return folders[i]; }
+					}
+					return null;
+				}
+
+				// Import a folder in short chunks that continue automatically until
+				// nothing is left, so the count climbs live instead of the user
+				// waiting on one long request or re-clicking. Each chunk is a bounded
+				// server run; the loop just keeps asking for the next one.
+				function runImport(key) {
+					if (importing[key]) { return; }
+					importing[key] = true;
+					render();
+
+					(function chunk() {
+						post('uimptr_'+slug+'_sync_now', { key: key }, function(r) {
+							if (r && r.data && r.data.folders) { folders = r.data.folders; }
+							var f = findFolder(key);
+							var more = r && r.success && f && f.status !== 'error' && f.remaining > 0;
+							if (more) {
+								render();
+								chunk();
+							} else {
+								importing[key] = false;
+								render();
+								if (r && !r.success && r.data && r.data.message) {
+									$('#uimptr-'+slug+'-feedback').css('color', '#b32d2e').text(r.data.message);
+								}
+							}
+						}).fail(function() {
+							// A dropped chunk (host timeout) is safe: progress is
+							// checkpointed server-side, so the schedule or another
+							// Check now resumes from where it stopped.
+							importing[key] = false;
+							render();
+						});
+					})();
+				}
 
 			function render() {
 				var $body = $('#uimptr-'+slug+'-list tbody').empty();
@@ -605,7 +653,11 @@ abstract class CloudFolderController {
 					// Imported count, plus a progress note so a large folder that
 					// is still catching up does not look stuck at a partial number.
 					var $imported = $('<td/>').append($('<div/>').text(f.imported));
-					if (f.status !== 'error') {
+					if (importing[f.key]) {
+						$imported.append($('<div/>').css({ color: '#996800', 'font-size': '90%' })
+							.text(f.total > 0 ? strings.importingOf.replace('%1$d', f.imported).replace('%2$d', f.total)
+											  : strings.importingNow));
+					} else if (f.status !== 'error') {
 						if (f.remaining > 0) {
 							$imported.append($('<div/>').css({ color: '#996800', 'font-size': '90%' })
 								.text(strings.queued.replace('%d', f.remaining)));
@@ -619,16 +671,11 @@ abstract class CloudFolderController {
 					$('<td/>').text(f.last_sync).appendTo($row);
 
 					var $actions = $('<td/>');
+					var busy = !!importing[f.key];
 					$('<button type="button" class="button"/>')
-						.text(strings.syncNow)
-						.on('click', function() {
-							var $b = $(this).prop('disabled', true).text(strings.syncing);
-							post('uimptr_'+slug+'_sync_now', { key: f.key }, function(r) {
-								if (r && r.data && r.data.folders) { folders = r.data.folders; }
-								render();
-								if (r && !r.success && r.data) { window.alert(r.data.message); }
-							}).always(function() { $b.prop('disabled', false).text(strings.syncNow); });
-						})
+						.text(busy ? strings.syncing : strings.syncNow)
+						.prop('disabled', busy)
+						.on('click', function() { runImport(f.key); })
 						.appendTo($actions);
 
 					$('<button type="button" class="button"/>')
@@ -685,6 +732,8 @@ abstract class CloudFolderController {
 						$('#uimptr-'+slug+'-url, #uimptr-'+slug+'-label').val('');
 						$('#uimptr-'+slug+'-feedback').css('color', '#008a20').text(r.data.message);
 						render();
+						// Start importing straight away so the folder fills in live.
+						if (r.data.key) { runImport(r.data.key); }
 					} else {
 						$('#uimptr-'+slug+'-feedback').css('color', '#b32d2e')
 							.text(r && r.data ? r.data.message : 'Could not add that folder.');
