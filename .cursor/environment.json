@@ -1,0 +1,8 @@
+{
+  "name": "URL Image Importer",
+  "user": "ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "install": "composer install --prefer-dist --no-progress --no-interaction"
+}
