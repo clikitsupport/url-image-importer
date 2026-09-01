@@ -2723,24 +2723,6 @@ function uimptr_format_import_skip_message( $url, WP_Error $error ) {
 }
 
 /**
- * Raise memory and execution time for image download + thumbnail generation.
- *
- * Host PHP-FPM/nginx timeouts can still cut the request short; this only
- * raises limits the process itself can control.
- */
-function uimptr_raise_import_resource_limits() {
-	if ( function_exists( 'wp_raise_memory_limit' ) ) {
-		wp_raise_memory_limit( 'image' );
-	}
-
-	@ini_set( 'memory_limit', '512M' );
-
-	if ( function_exists( 'set_time_limit' ) ) {
-		@set_time_limit( 300 );
-	}
-}
-
-/**
  * Whether a PHP error array is an unrecoverable fatal that aborted the request.
  *
  * @param mixed $error error_get_last() payload.
@@ -4377,7 +4359,6 @@ function uimptr_ajax_batch_import() {
 		wp_send_json_error( 'Permission denied' );
 	}
 
-	uimptr_raise_import_resource_limits();
 	uimptr_register_batch_import_fatal_handler();
 	$GLOBALS['uimptr_batch_import_active'] = true;
 
