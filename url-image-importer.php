@@ -1815,15 +1815,16 @@ function uimptr_import_images_url_page() {
 				};
 			}
 
-			function processBatchImport(batchId, urls, startIndex, type, importOptions) {
+			function processBatchImport(batchId, urls, startIndex, type, importOptions, retryCount) {
 				importOptions = importOptions || getImportOptions(type);
+				retryCount = retryCount || 0;
 
 				var requestData = {
 					action: 'uimptr_batch_import',
 					nonce: uimptr_ajax.nonce,
 					batch_id: batchId,
 					start_index: startIndex,
-					batch_size: 3, // Smaller batch for stability
+					batch_size: 1, // One URL per request so a host 500/timeout does not discard a whole chunk
 					import_type: type,
 					preserve_dates: importOptions.preserveDates,
 					force_reimport: importOptions.forceReimport
@@ -1899,8 +1900,26 @@ function uimptr_import_images_url_page() {
 						activeImportType = null;
 					}
 				},
-				error: function() {
-					$('#' + type + '-progress-text').text('<?php esc_html_e( 'Network error occurred', 'url-image-importer' ); ?>');
+				error: function(xhr, textStatus) {
+					var status = xhr && xhr.status ? parseInt(xhr.status, 10) : 0;
+					var canRetry = retryCount < 2 && (textStatus === 'timeout' || textStatus === 'error' || textStatus === 'parsererror' || status === 500 || status === 502 || status === 503 || status === 504);
+
+					if (canRetry) {
+						$('#' + type + '-progress-text').text('<?php echo esc_js( __( 'Temporary server error, retrying…', 'url-image-importer' ) ); ?>');
+						setTimeout(function() {
+							processBatchImport(batchId, urls, startIndex, type, importOptions, retryCount + 1);
+						}, 1000 * (retryCount + 1));
+						return;
+					}
+
+					var detail = '';
+					if (status) {
+						detail = ' HTTP ' + status;
+					} else if (textStatus) {
+						detail = ' (' + textStatus + ')';
+					}
+
+					$('#' + type + '-progress-text').text('<?php esc_html_e( 'Network error occurred', 'url-image-importer' ); ?>' + detail + '. <?php echo esc_js( __( 'The server did not return a valid response. Try fewer URLs, then check the site error log for a PHP fatal during admin-ajax.php.', 'url-image-importer' ) ); ?>');
 					$('#start-' + type + '-import').prop('disabled', false);
 					$('#cancel-' + type + '-import').prop('disabled', false).text('<?php esc_html_e( 'Cancel Import', 'url-image-importer' ); ?>');
 					activeImportBatchId = null;
@@ -2701,6 +2720,122 @@ function uimptr_is_skippable_import_error( $error ) {
  */
 function uimptr_format_import_skip_message( $url, WP_Error $error ) {
 	return sprintf( 'Skipped %1$s: %2$s', esc_url_raw( $url ), $error->get_error_message() );
+}
+
+/**
+ * Raise memory and execution time for image download + thumbnail generation.
+ *
+ * Host PHP-FPM/nginx timeouts can still cut the request short; this only
+ * raises limits the process itself can control.
+ */
+function uimptr_raise_import_resource_limits() {
+	if ( function_exists( 'wp_raise_memory_limit' ) ) {
+		wp_raise_memory_limit( 'image' );
+	}
+
+	@ini_set( 'memory_limit', '512M' );
+
+	if ( function_exists( 'set_time_limit' ) ) {
+		@set_time_limit( 300 );
+	}
+}
+
+/**
+ * Whether a PHP error array is an unrecoverable fatal that aborted the request.
+ *
+ * @param mixed $error error_get_last() payload.
+ * @return bool
+ */
+function uimptr_is_unrecoverable_error( $error ) {
+	if ( ! is_array( $error ) || empty( $error['type'] ) ) {
+		return false;
+	}
+
+	return in_array(
+		(int) $error['type'],
+		array( E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR ),
+		true
+	);
+}
+
+/**
+ * Human-readable AJAX error for a fatal during batch import.
+ *
+ * @param array $error error_get_last() payload.
+ * @return string
+ */
+function uimptr_format_batch_import_server_error_message( $error ) {
+	$message = isset( $error['message'] ) ? trim( (string) $error['message'] ) : '';
+	if ( '' === $message ) {
+		$message = 'Unknown server error';
+	}
+
+	if ( function_exists( 'mb_strlen' ) && function_exists( 'mb_substr' ) ) {
+		if ( mb_strlen( $message ) > 300 ) {
+			$message = mb_substr( $message, 0, 297 ) . '...';
+		}
+	} elseif ( strlen( $message ) > 300 ) {
+		$message = substr( $message, 0, 297 ) . '...';
+	}
+
+	return 'Server error while importing images: ' . $message;
+}
+
+/**
+ * Convert a fatal during an active batch-import AJAX request into JSON.
+ *
+ * Memory exhaustion and similar fatals otherwise return a blank/HTML 500
+ * page, which the admin UI reports only as "Network error occurred".
+ *
+ * @param array|null $error Optional error payload; defaults to error_get_last().
+ * @return bool True when a JSON error response was sent.
+ */
+function uimptr_handle_batch_import_shutdown_error( $error = null ) {
+	if ( empty( $GLOBALS['uimptr_batch_import_active'] ) ) {
+		return false;
+	}
+
+	if ( null === $error ) {
+		$error = error_get_last();
+	}
+
+	if ( ! uimptr_is_unrecoverable_error( $error ) ) {
+		return false;
+	}
+
+	$GLOBALS['uimptr_batch_import_active'] = false;
+
+	if ( function_exists( 'nocache_headers' ) ) {
+		nocache_headers();
+	}
+
+	if ( ! headers_sent() && function_exists( 'status_header' ) ) {
+		status_header( 200 );
+	}
+
+	if ( function_exists( 'wp_send_json_error' ) ) {
+		wp_send_json_error(
+			array(
+				'message' => uimptr_format_batch_import_server_error_message( $error ),
+			)
+		);
+	}
+
+	return true;
+}
+
+/**
+ * Register a one-time shutdown handler for the current batch-import request.
+ */
+function uimptr_register_batch_import_fatal_handler() {
+	static $registered = false;
+
+	if ( $registered ) {
+		return;
+	}
+
+	$registered = true;
+	register_shutdown_function( 'uimptr_handle_batch_import_shutdown_error' );
 }
 
 /**
@@ -4241,10 +4376,27 @@ function uimptr_ajax_batch_import() {
 	if ( ! current_user_can( 'upload_files' ) ) {
 		wp_send_json_error( 'Permission denied' );
 	}
+
+	uimptr_raise_import_resource_limits();
+	uimptr_register_batch_import_fatal_handler();
+	$GLOBALS['uimptr_batch_import_active'] = true;
+
+	try {
+		uimptr_process_batch_import_request();
+	} finally {
+		$GLOBALS['uimptr_batch_import_active'] = false;
+	}
+}
+
+/**
+ * Process one batch-import AJAX payload.
+ */
+function uimptr_process_batch_import_request() {
 	
 	$batch_id    = sanitize_text_field( $_POST['batch_id'] ?? '' );
 	$start_index = intval( $_POST['start_index'] ?? 0 );
-	$batch_size  = intval( $_POST['batch_size'] ?? 5 ); // Process 5 URLs at a time
+	$batch_size  = intval( $_POST['batch_size'] ?? 1 );
+	$batch_size  = max( 1, min( 5, $batch_size ) );
 	$import_type = sanitize_key( $_POST['import_type'] ?? 'url' );
 	$urls_raw    = isset( $_POST['urls'] ) ? wp_unslash( $_POST['urls'] ) : '';
 	$urls_payload = array();
@@ -4379,9 +4531,15 @@ function uimptr_ajax_batch_import() {
 			}
 		}
 		
-		// Import the image with metadata
-		$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates, true, $allow_google_drive );
-		
+		// Import the image with metadata. Catch recoverable engine errors so one
+		// URL cannot turn the whole admin-ajax request into an HTTP 500.
+		try {
+			$attachment_id = uimptr_import_image_from_url( $url, $batch_id, $metadata, $preserve_dates, true, $allow_google_drive );
+		} catch ( Throwable $e ) {
+			error_log( 'URL Image Importer: Import crashed for ' . $url . ': ' . $e->getMessage() );
+			$attachment_id = new WP_Error( 'import_exception', $e->getMessage() );
+		}
+
 		if ( is_wp_error( $attachment_id ) ) {
 			if ( uimptr_is_skippable_import_error( $attachment_id ) ) {
 				$skip_message = uimptr_format_import_skip_message( $url, $attachment_id );
