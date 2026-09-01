@@ -147,4 +147,77 @@ class BatchImportTest extends WpTestCase {
 		$this->assertFileDoesNotExist( $mapping['path'] );
 		$this->assertNull( \uimptr_get_mapping_export_info( 'batch-cancel' ) );
 	}
+
+	public function test_batch_import_counts_thrown_errors_as_failed_instead_of_500(): void {
+		$url = 'https://cdn.example.test/crash.png';
+		$GLOBALS['uimptr_test_http_callback'] = static function( $request_url ) use ( $url ) {
+			if ( $request_url === $url ) {
+				throw new \Error( 'Allowed memory size of 134217728 bytes exhausted' );
+			}
+
+			return new \WP_Error( 'http_not_mocked', 'No mocked response for URL: ' . $request_url );
+		};
+		$_POST = array(
+			'batch_id'    => 'batch-crash',
+			'start_index' => '0',
+			'batch_size'  => '1',
+			'urls'        => wp_json_encode(
+				array(
+					array(
+						'url'      => $url,
+						'metadata' => array(),
+					),
+				)
+			),
+		);
+
+		try {
+			\uimptr_ajax_batch_import();
+			$this->fail( 'Expected JSON success response.' );
+		} catch ( Uimptr_Test_Json_Response $response ) {
+			$this->assertTrue( $response->success );
+			$this->assertSame( array( 'success' => 0, 'failed' => 1, 'skipped' => 0 ), $response->data['stats'] );
+			$this->assertNotEmpty( $response->data['errors'] );
+			$this->assertStringContainsString( 'Allowed memory size', $response->data['errors'][0] );
+		}
+
+		$this->assertFalse( ! empty( $GLOBALS['uimptr_batch_import_active'] ) );
+	}
+
+	public function test_fatal_handler_converts_active_batch_fatal_to_json_error(): void {
+		$GLOBALS['uimptr_batch_import_active'] = true;
+
+		try {
+			\uimptr_handle_batch_import_shutdown_error(
+				array(
+					'type'    => E_ERROR,
+					'message' => 'Allowed memory size of 134217728 bytes exhausted (tried to allocate 20480 bytes)',
+				)
+			);
+			$this->fail( 'Expected JSON error response.' );
+		} catch ( Uimptr_Test_Json_Response $response ) {
+			$this->assertFalse( $response->success );
+			$this->assertSame(
+				'Server error while importing images: Allowed memory size of 134217728 bytes exhausted (tried to allocate 20480 bytes)',
+				$response->data['message']
+			);
+		}
+
+		$this->assertFalse( ! empty( $GLOBALS['uimptr_batch_import_active'] ) );
+	}
+
+	public function test_fatal_handler_ignores_inactive_batch_and_warnings(): void {
+		$GLOBALS['uimptr_batch_import_active'] = false;
+		$this->assertFalse(
+			\uimptr_handle_batch_import_shutdown_error(
+				array(
+					'type'    => E_ERROR,
+					'message' => 'Allowed memory size exhausted',
+				)
+			)
+		);
+
+		$this->assertFalse( \uimptr_is_unrecoverable_error( array( 'type' => E_WARNING, 'message' => 'notice' ) ) );
+		$this->assertTrue( \uimptr_is_unrecoverable_error( array( 'type' => E_ERROR, 'message' => 'fatal' ) ) );
+	}
 }
